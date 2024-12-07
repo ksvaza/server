@@ -80,6 +80,59 @@ func (srv *Service) queryData(ctx context.Context, client mqtt.Client, msg mqtt.
 	fmt.Println(result)
 }
 
+func (srv *Service) queryMeasurements(ctx context.Context) ([]measurement, error) {
+	queryAPI := srv.Influxdb.QueryAPI("Aranet")
+	query := `from(bucket: "Outdoors")
+            |> range(start: -10m)
+            |> filter(fn: (r) => r._measurement == "measurement")`
+	results, err := queryAPI.Query(ctx, query)
+	if err != nil {
+		//fmt.Printf("Error: '%s'\n", err.Error())
+		return nil, err
+	}
+	data := map[time.Time]*measurement{}
+	for results.Next() {
+		raw := results.Record()
+		t := raw.Time()
+		if _, found := data[t]; !found {
+			data[t] = &measurement{Time: t}
+		}
+		switch raw.Field() {
+		case "battery":
+			if f, ok := raw.Value().(float64); ok {
+				data[t].Battery = f
+			}
+		case "temperature":
+			if f, ok := raw.Value().(float64); ok {
+				data[t].Temperature = f
+			}
+		case "humidity":
+			if f, ok := raw.Value().(float64); ok {
+				data[t].Humidity = f
+			}
+		case "rssi":
+			if f, ok := raw.Value().(float64); ok {
+				data[t].Rssi = f
+			}
+		}
+	}
+	if err := results.Err(); err != nil {
+		//fmt.Printf("Error: '%s'\n", err.Error())
+		return nil, err
+	}
+
+	result := []measurement{}
+	for _, value := range data {
+		result = append(result, *value)
+	}
+
+	slices.SortFunc(result, func(a, b measurement) int {
+		return a.Time.Compare(b.Time)
+	})
+
+	return result, nil
+}
+
 func (srv *Service) handleOutdoorTemperature(ctx context.Context, client mqtt.Client, msg mqtt.Message) {
 	defer func() {
 		if r := recover(); r != nil {

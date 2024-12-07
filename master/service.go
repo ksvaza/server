@@ -3,6 +3,7 @@ package master
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -71,6 +72,19 @@ func (srv *Service) Run() {
 
 		<-ctx.Done()
 		client.Disconnect(250)
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		mux := http.NewServeMux()
+		mux.HandleFunc("/api/outdoors", srv.getOutdoors)
+
+		err := http.ListenAndServe(":1884", mux)
+		if err != nil {
+			fmt.Printf("HTTP Error: '%s'\n", err.Error())
+		}
 	}()
 
 	wg.Wait()
