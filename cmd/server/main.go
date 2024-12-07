@@ -9,11 +9,11 @@ import (
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
-			print(fmt.Sprintf("Panic:%v", r))
+			fmt.Printf("Panic:%v\n", r)
 		}
 	}()
 
-	server := master.NewService("svaza.lv", 1883, "esp32", "T-SIM7000G")
+	server := master.NewService("svaza.lv", 1883, "esp32", "T-SIM7000G", "http://localhost:8086", "lGnMEQI7KFmOaE-IYKvn7aGi7raeKew3-wwT6_9iYTuV2SQBrzPMDUuo46z0AsbM5qeJooRMGyp5ZsouIXeSKw==")
 	server.Run()
 
 	print("Hello, world!\n")

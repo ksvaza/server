@@ -7,6 +7,9 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+
+	mqtt "github.com/eclipse/paho.mqtt.golang"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 )
 
 type Service struct {
@@ -15,9 +18,10 @@ type Service struct {
 	port       int
 	username   string
 	password   string
+	Influxdb   influxdb2.Client
 }
 
-func NewService(host string, port int, username, password string) *Service {
+func NewService(host string, port int, username, password string, influxHost, influxApikey string) *Service {
 	stopSignal := make(chan os.Signal, 1)
 	signal.Notify(stopSignal, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	return &Service{
@@ -26,6 +30,7 @@ func NewService(host string, port int, username, password string) *Service {
 		port:       port,
 		username:   username,
 		password:   password,
+		Influxdb:   influxdb2.NewClient(influxHost, influxApikey),
 	}
 }
 
@@ -51,10 +56,18 @@ func (srv *Service) Run() {
 			fmt.Printf("Failed to create mqtt client '%s'\n", err.Error())
 		}
 
-		topic := "topic"
-		token := client.Subscribe(topic, 1, srv.handleTopic)
+		token := client.Subscribe("topic", 1, srv.handleTopic)
 		token.Wait()
-		fmt.Printf("Subscribed to topic %s\n", topic)
+
+		token = client.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
+			srv.handleOutdoorTemperature(ctx, c, m)
+		})
+		token.Wait()
+
+		token = client.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
+			srv.queryData(ctx, c, m)
+		})
+		token.Wait()
 
 		<-ctx.Done()
 		client.Disconnect(250)
