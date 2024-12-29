@@ -22,16 +22,25 @@ type Service struct {
 	Influxdb   influxdb2.Client
 }
 
-func NewService(host string, port int, username, password string, influxHost, influxApikey string) *Service {
+type Config struct {
+	MqttHost       string
+	MqttPort       int
+	MqttUsername   string
+	MqttPassword   string
+	InfluxdbUrl    string
+	InfluxdbApikey string
+}
+
+func NewService(config Config) *Service {
 	stopSignal := make(chan os.Signal, 1)
 	signal.Notify(stopSignal, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	return &Service{
 		StopSignal: stopSignal,
-		host:       host,
-		port:       port,
-		username:   username,
-		password:   password,
-		Influxdb:   influxdb2.NewClient(influxHost, influxApikey),
+		host:       config.MqttHost,
+		port:       config.MqttPort,
+		username:   config.MqttUsername,
+		password:   config.MqttPassword,
+		Influxdb:   influxdb2.NewClient(config.InfluxdbUrl, config.InfluxdbApikey),
 	}
 }
 
@@ -80,6 +89,8 @@ func (srv *Service) Run() {
 
 		mux := http.NewServeMux()
 		mux.HandleFunc("/api/outdoors", srv.getOutdoors)
+		fs := http.FileServer(http.Dir("./public"))
+		mux.Handle("/", fs)
 
 		err := http.ListenAndServe(":1884", mux)
 		if err != nil {

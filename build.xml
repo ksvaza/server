@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project name="Server" default="build" basedir=".">
+	<target name="clean">
+		<delete includeemptydirs="true" quiet="true">
+			<fileset dir="${basedir}/" includes="bin/**/*" defaultexcludes="false" />
+		</delete>
+	</target>
+	
+	<target name="docker">
+		<mkdir dir="bin" />
+		<exec executable="docker" failonerror="true">
+			<arg line="build" />
+			<arg line="-f Dockerfile" />
+			<arg line="-t server" />
+			<arg line="." />
+		</exec>
+		<exec executable="docker" failonerror="true">
+			<arg line="save" />
+			<arg line="-o bin/server.tar" />
+			<arg line="server" />
+		</exec>
+	</target>
+
+	<target name="build" depends="clean,docker" />
+</project>
