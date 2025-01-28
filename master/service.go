@@ -8,9 +8,13 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
+	httprouter "github.com/julienschmidt/httprouter"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type Service struct {
@@ -20,6 +24,7 @@ type Service struct {
 	username   string
 	password   string
 	Influxdb   influxdb2.Client
+	mqtt       mqtt.Client
 }
 
 type Config struct {
@@ -53,48 +58,102 @@ func (srv *Service) Run() {
 	go func() {
 		defer wg.Done()
 		<-srv.StopSignal
-		fmt.Println("Stopping")
+		logrus.Info("Stopping")
 		cancel()
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
+			}
+		}()
 
-		client, err := createMqttClient(srv.host, srv.port, srv.username, srv.password)
+		var err error
+		srv.mqtt, err = createMqttClient(srv.host, srv.port, srv.username, srv.password)
 		if err != nil {
-			fmt.Printf("Failed to create mqtt client '%s'\n", err.Error())
+			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
 		}
 
-		token := client.Subscribe("topic", 1, srv.handleTopic)
+		token := srv.mqtt.Subscribe("topic", 1, srv.handleTopic)
 		token.Wait()
 
-		token = client.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
+		token = srv.mqtt.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
 			srv.handleOutdoorTemperature(ctx, c, m)
 		})
 		token.Wait()
 
-		token = client.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
+		token = srv.mqtt.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
 			srv.queryData(ctx, c, m)
 		})
 		token.Wait()
 
+		// Subscribe to car-server steam topics
+
+		token = srv.mqtt.Subscribe("PSU_OUT", 1, func(c mqtt.Client, m mqtt.Message) {
+			srv.handleTopicPSU(ctx, c, m)
+		})
+		token.Wait()
+
+		token = srv.mqtt.Subscribe("GPS_OUT", 1, func(c mqtt.Client, m mqtt.Message) {
+			srv.handleTopicGPS(ctx, c, m)
+		})
+		token.Wait()
+
 		<-ctx.Done()
-		client.Disconnect(250)
+		srv.mqtt.Disconnect(250)
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
+			}
+		}()
 		mux := http.NewServeMux()
 		mux.HandleFunc("/api/outdoors", srv.getOutdoors)
 		fs := http.FileServer(http.Dir("./public"))
 		mux.Handle("/", fs)
+		router := httprouter.New()
+		mux.Handle("/api/car", router)
+		router.GET("/:car/latest", srv.getLatestData)
 
-		err := http.ListenAndServe(":1884", mux)
+		err := http.ListenAndServe(":1884", router)
 		if err != nil {
-			fmt.Printf("HTTP Error: '%s'\n", err.Error())
+			logrus.WithError(errors.Wrap(err, "HTTP")).Error("Error")
+		}
+	}()
+
+	wg.Add(1)
+	go func() { // reconnect mqtt client until it is connected
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic:%v\n", r)
+				logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
+			}
+		}()
+
+		// loop needs to happen no more than once per second
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				time.Sleep(1 * time.Second)
+				if srv.mqtt == nil || srv.mqtt.IsConnected() {
+					break
+				}
+				token := srv.mqtt.Connect()
+				token.Wait()
+				if err := token.Error(); err != nil {
+					logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+				}
+			}
 		}
 	}()
 

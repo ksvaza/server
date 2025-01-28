@@ -171,7 +171,7 @@ func (srv *Service) handleOutdoorTemperature(ctx context.Context, client mqtt.Cl
 	}
 
 	var t time.Time
-	if s, err := strconv.ParseInt(data.Battery, 10, 64); err == nil {
+	if s, err := strconv.ParseInt(data.Time, 10, 64); err == nil {
 		t = time.Unix(s, 0)
 	} else {
 		t = time.Now()

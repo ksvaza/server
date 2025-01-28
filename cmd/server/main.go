@@ -5,6 +5,8 @@ import (
 	"strconv"
 
 	"github.com/ksvaza/server/master"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 )
 
@@ -33,15 +35,29 @@ func viperGetInt(name string) int {
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Printf("Panic:%v\n", r)
+			logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
 		}
 	}()
+
+	logrus.SetFormatter(&logrus.TextFormatter{
+		TimestampFormat: "02.01.2006 15:04:05.000",
+		FullTimestamp:   true,
+		//		DisableColors:   true,
+		DisableQuote: true,
+	})
+	logrus.SetOutput(&master.LogWriter{})
+
+	logrus.AddHook(&master.StacktraceHook{})
+
+	logrus.SetLevel(logrus.InfoLevel)
+
+	logrus.Info("Car statistics server started")
 
 	viper.SetConfigFile(".env")
 	viper.AutomaticEnv()
 	err := viper.ReadInConfig()
 	if err != nil {
-		fmt.Printf("Error: '%s'\n", err.Error())
+		logrus.WithError(errors.Wrap(err, "Config read")).Error("Error")
 	}
 
 	config := master.Config{
@@ -58,5 +74,5 @@ func main() {
 	server := master.NewService(config)
 	server.Run()
 
-	print("Hello, world!\n")
+	logrus.Info("Car statistics server stopped")
 }
