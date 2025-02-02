@@ -20,6 +20,15 @@
 			<arg line="server" />
 		</exec>
 	</target>
-
+	
+	<target name="win">
+		<exec executable="docker" failonerror="true">
+			<arg line="build" />
+			<arg line="-f DockerfileAMD64" />
+			<arg line="-t server" />
+			<arg line="." />
+		</exec>
+	</target>
+	
 	<target name="build" depends="clean,docker" />
 </project>

@@ -7,7 +7,7 @@ import (
 )
 
 func (srv *Service) handleTopic(client mqtt.Client, msg mqtt.Message) {
-	fmt.Printf("Received message: %s from topic: %s\n", msg.Payload(), msg.Topic())
+	fmt.Printf("Received message: '%s' from topic: %s\n", msg.Payload(), msg.Topic())
 }
 
 func createMqttClient(host string, port int, username, password string) (mqtt.Client, error) {

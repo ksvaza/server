@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -25,8 +26,7 @@ import (
 PSU_IN: // Man vajag tikai spriegumu un srāvu jo Spriegums tad ir vnk info no komandas, strāva ir (m×const)/V
 {
 	"U":4976,
-	"I":327,
-	"St":1
+	"I":327
 }
 
 PSU_OUT:
@@ -46,9 +46,8 @@ GPS_OUT:
 }
 */
 type payloadOutPSU struct {
-	U  int `json:"U"`
-	I  int `json:"I"`
-	St int `json:"St"`
+	U int `json:"U"`
+	I int `json:"I"`
 }
 type payloadPSU struct {
 	Uop int `json:"Uop"`
@@ -65,9 +64,8 @@ type payloadGPS struct {
 
 // Data structs
 type dataOutPSU struct {
-	U  float32
-	I  float32
-	St bool
+	U float32
+	I float32
 }
 type dataPSU struct { // psu dati ir jāreizina/jādala ar 100, piem. "U":4976 (no/uz psu) - 49.76V
 	Uop  float32
@@ -136,7 +134,7 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 	}
 
 	// for debugging reasons print the data
-	logrus.Debugf("Uop: %f, Iop: %f, Pop: %f, Uip: %f, Wh: %f\n", data.Uop, data.Iop, data.Pop, data.Uip, data.Wh)
+	logrus.Debugf("Uop: %f, Iop: %f, Pop: %f, Uip: %f, Wh: %f", data.Uop, data.Iop, data.Pop, data.Uip, data.Wh)
 
 	// Get car ID from subtopic
 	var carID string
@@ -159,6 +157,8 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
 	fields["Wh"] = data.Wh
+
+	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
 	point := write.NewPoint("PSU", tags, fields, data.Time)
 
@@ -228,6 +228,20 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 // ----------------------------------------------------------------
 
 // Send the PSU data
-func (srv *Service) sendPSUData(client mqtt.Client, data dataOutPSU) {
+func (srv *Service) sendPSUData(carID string, data dataOutPSU) error {
+	payload := payloadOutPSU{
+		U: int(math.Round(float64(data.U) * 100.0)),
+		I: int(math.Round(float64(data.I) * 100.0)),
+	}
+	bytes, err := json.Marshal(payload)
+	if err != nil {
+		return errors.Wrap(err, "JSON")
+	}
 
+	token := srv.mqtt.Publish(fmt.Sprintf("PSU_IN/%s", carID), 1, false, bytes)
+	token.Wait()
+	if err := token.Error(); err != nil {
+		return errors.Wrap(err, "MQTT")
+	}
+	return nil
 }

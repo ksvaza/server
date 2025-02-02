@@ -77,30 +77,45 @@ func (srv *Service) Run() {
 			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
 		}
 
-		token := srv.mqtt.Subscribe("topic", 1, srv.handleTopic)
+		token := srv.mqtt.Subscribe("#", 1, srv.handleTopic)
 		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+		}
 
 		token = srv.mqtt.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
 			srv.handleOutdoorTemperature(ctx, c, m)
 		})
 		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+		}
 
 		token = srv.mqtt.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
 			srv.queryData(ctx, c, m)
 		})
 		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+		}
 
 		// Subscribe to car-server steam topics
 
-		token = srv.mqtt.Subscribe("PSU_OUT", 1, func(c mqtt.Client, m mqtt.Message) {
+		token = srv.mqtt.Subscribe("PSU_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
 			srv.handleTopicPSU(ctx, c, m)
 		})
 		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+		}
 
-		token = srv.mqtt.Subscribe("GPS_OUT", 1, func(c mqtt.Client, m mqtt.Message) {
+		token = srv.mqtt.Subscribe("GPS_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
 			srv.handleTopicGPS(ctx, c, m)
 		})
 		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+		}
 
 		<-ctx.Done()
 		srv.mqtt.Disconnect(250)
@@ -114,13 +129,13 @@ func (srv *Service) Run() {
 				logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
 			}
 		}()
-		mux := http.NewServeMux()
-		mux.HandleFunc("/api/outdoors", srv.getOutdoors)
+
 		fs := http.FileServer(http.Dir("./public"))
-		mux.Handle("/", fs)
 		router := httprouter.New()
-		mux.Handle("/api/car", router)
-		router.GET("/:car/latest", srv.getLatestData)
+		router.Handler("GET", "/", fs)
+		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
+		router.GET("/api/car/:car/latest", srv.getLatestData)
+		router.GET("/api/car/:car/power", srv.setMass)
 
 		err := http.ListenAndServe(":1884", router)
 		if err != nil {
