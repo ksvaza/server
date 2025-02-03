@@ -245,3 +245,12 @@ func (srv *Service) sendPSUData(carID string, data dataOutPSU) error {
 	}
 	return nil
 }
+
+func (srv *Service) sendAnyTopic(topic string, payload []byte) error {
+	token := srv.mqtt.Publish(topic, 1, false, payload)
+	token.Wait()
+	if err := token.Error(); err != nil {
+		return errors.Wrap(err, "MQTT")
+	}
+	return nil
+}

@@ -25,6 +25,7 @@ type Service struct {
 	password   string
 	Influxdb   influxdb2.Client
 	mqtt       mqtt.Client
+	log        Log
 }
 
 type Config struct {
@@ -136,6 +137,9 @@ func (srv *Service) Run() {
 		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
 		router.GET("/api/car/:car/latest", srv.getLatestData)
 		router.GET("/api/car/:car/power", srv.setMass)
+		router.PUT("/api/mqtt/send/*topic", srv.sendToMqtt)
+		router.GET("/api/mqtt/log", srv.getMqttLog)
+		router.DELETE("/api/mqtt/log", srv.deleteMqttLogs)
 
 		err := http.ListenAndServe(":1884", router)
 		if err != nil {

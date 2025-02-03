@@ -1,12 +1,16 @@
 # Stage 1: Build Go server
 FROM golang:1.23.4-alpine3.21 AS build
 
+WORKDIR /go/src
+
 COPY ./go.* /go/src
+RUN tree /go/src
+RUN go mod download -x
+
 COPY ./cmd /go/src/cmd
 COPY ./master /go/src/master
 COPY ./public /go/src/public
-
-WORKDIR /go/src
+RUN tree /go/src
 RUN go build -o server cmd/server/main.go
 
 # Stage 2: Final stage

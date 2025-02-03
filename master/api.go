@@ -3,6 +3,7 @@ package master
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -114,5 +115,56 @@ func (srv *Service) setMass(w http.ResponseWriter, r *http.Request, ps httproute
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(""))
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(fmt.Sprintf(`Set mass to '%f' with const to '%f' for car '%s'`, mass, con, carID)))
+}
+
+func (srv *Service) sendToMqtt(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	logrus.Debugf("got send request %+v, %+v", ps, r.URL.Query())
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	topic := ps.ByName("topic")
+	if len(topic) > 0 && topic[0] == '/' {
+		topic = topic[1:]
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+
+	err = srv.sendAnyTopic(topic, body)
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(fmt.Sprintf(`
+Sent to '%s'
+Payload: '%s'
+`, topic, string(body))))
+}
+
+func (srv *Service) getMqttLog(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	logrus.Debugf("got getMqttLog request")
+
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(srv.log.GetLogs()))
+}
+
+func (srv *Service) deleteMqttLogs(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	logrus.Debugf("got deleteMqttLogs request")
+
+	srv.log.ClearLogs()
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte("Logs cleared"))
 }
