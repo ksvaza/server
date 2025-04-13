@@ -1,0 +1,111 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f0f0f0;
+}
+
+.header {
+    margin: 10px auto;
+    background-color: #ddd;
+    width: 25%;
+    padding: 10px;
+    text-align: center;
+}
+
+.container {
+    margin: 10px auto;
+    width: 80%;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.authpanel {
+    margin: 10px auto;
+    width: 40%;
+    padding: 20px;
+    background-color: #eee;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: row;
+    button {
+        width: 50%;
+        background-color: #f8f8f8; /* Slightly off white */
+        border: 1px solid #ccc; /* Original border color */
+    }
+    button:hover {
+        background-color: #e0e0e0; /* Slightly darker on hover */
+    }
+    button:active {
+        background-color: #d0d0d0; /* Even darker when pressed */
+    }
+    #username {
+        width: 50%;
+        height: 2em;
+    }
+    #password {
+        width: 50%;
+        height: 2em;
+    }
+}
+
+.sendpanel {
+    margin: 10px auto;
+    width: 40%;
+    padding: 20px;
+    background-color: #eee;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: column;
+    button {
+        width: 100%;
+        margin-top: 10px;
+        height: 2em;
+        background-color: #f8f8f8; /* Slightly off white */
+        border: 1px solid #ccc; /* Original border color */
+    }
+    button:hover {
+        background-color: #e0e0e0; /* Slightly darker on hover */
+    }
+    button:active {
+        background-color: #d0d0d0; /* Even darker when pressed */
+    }
+    #message {
+        height: 6em; /* Assuming 1em is approximately the height of the font */
+        text-align: left;
+        vertical-align: top;
+        margin-top: 10px;
+    }
+}
+
+.logpanel {
+    margin: 10px auto;
+    width: 80%;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    button {
+        width: 100%;
+        margin-top: 10px;
+        height: 2em;
+        background-color: #f8f8f8; /* Slightly off white */
+        border: 1px solid #ccc; /* Original border color */
+    }
+    button:hover {
+        background-color: #e0e0e0; /* Slightly darker on hover */
+    }
+    button:active {
+        background-color: #d0d0d0; /* Even darker when pressed */
+    }
+    #log {
+        background-color: #f0f0f0;
+        border-radius: 5px;
+        overflow: auto;
+        margin-top: 10px;
+        max-width: 99.6%;
+        min-width: 99.6%;
+    }
+}

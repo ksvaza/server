@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Server</title>
+        <link rel="stylesheet" type="text/css" href="cardata.css" media="screen">
+        <script src="cardata.js"></script>
+    </head>
+    <body>
+        <div class="header">
+            <h2>Car Data</h2>
+            <a href="index.html">Back</a>
+        </div>
+        <div class="container">
+            <div class="auth_panel">
+                <input type="text" id="username" placeholder="Username">
+                <input type="password" id="password" placeholder="Password">
+                <button onclick="auth()">Authenticate</button>
+            </div>
+        </div>
+        <div class="data_panel">
+            <div class="request_panel">
+                <div>
+                    <input type="text" id="carID" placeholder="Car ID">
+                    <button onclick="refresh()">Refresh Data</button>
+                </div>
+                <div>
+                    <input type="number" id="refreshInterval" placeholder="Refresh Interval">
+                    <button onclick="updateInterval()">Update Interval</button>
+                </div>
+            </div>
+            <div class="data_visualiser">
+                <div class="psu_data">
+                    <table>
+                        <tr>
+                            <td>Uop</td>
+                            <td id="psuUop">0</td>
+                        </tr>
+                        <tr>
+                            <td>Iop</td>
+                            <td id="psuIop">0</td>
+                        </tr>
+                        <tr>
+                            <td>Pop</td>
+                            <td id="psuPop">0</td>
+                        </tr>
+                        <tr>
+                            <td>Uip</td>
+                            <td id="psuUip">0</td>
+                        </tr>
+                        <tr>
+                            <td>Wh</td>
+                            <td id="psuWh">0</td>
+                        </tr>
+                        <tr>
+                            <td>Time</td>
+                            <td id="psuTime">0</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="gps_data">
+                    <table>
+                        <tr>
+                            <td>Lat</td>
+                            <td id="gpsLat">0</td>
+                        </tr>
+                        <tr>
+                            <td>Lon</td>
+                            <td id="gpsLon">0</td>
+                        </tr>
+                        <tr>
+                            <td>Spd</td>
+                            <td id="gpsSpd">0</td>
+                        </tr>
+                        <tr>
+                            <td>Time</td>
+                            <td id="gpsTime">0</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="accel_data">
+                    <table>
+                        <tr>
+                            <td>X</td>
+                            <td id="accelX">0</td>
+                        </tr>
+                        <tr>
+                            <td>Y</td>
+                            <td id="accelY">0</td>
+                        </tr>
+                        <tr>
+                            <td>Z</td>
+                            <td id="accelZ">0</td>
+                        </tr>
+                        <tr>
+                            <td>Time</td>
+                            <td id="accelTime">0</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

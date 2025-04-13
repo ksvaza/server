@@ -50,16 +50,26 @@ type payloadOutPSU struct {
 	I int `json:"I"`
 }
 type payloadPSU struct {
-	Uop int `json:"Uop"`
-	Iop int `json:"Iop"`
-	Pop int `json:"Pop"`
-	Uip int `json:"Uip"`
-	Wh  int `json:"Wh"`
+	Uop int `json:"Uop,omitempty"`
+	Iop int `json:"Iop,omitempty"`
+	Pop int `json:"Pop,omitempty"`
+	Uip int `json:"Uip,omitempty"`
+	Wh  int `json:"Wh,omitempty"`
 }
 type payloadGPS struct {
-	Lat float32 `json:"Lat"`
-	Lon float32 `json:"Lon"`
-	Spd float32 `json:"Spd"`
+	Lat float32 `json:"Lat,omitempty"`
+	Lon float32 `json:"Lon,omitempty"`
+	Spd float32 `json:"Spd,omitempty"`
+}
+type payloadACCEL struct {
+	X float32 `json:"X,omitempty"`
+	Y float32 `json:"Y,omitempty"`
+	Z float32 `json:"Z,omitempty"`
+}
+type payloadAll struct {
+	PSU   payloadPSU   `json:"PSU"`
+	GPS   payloadGPS   `json:"GPS"`
+	ACCEL payloadACCEL `json:"ACCEL"`
 }
 
 // Data structs
@@ -79,6 +89,20 @@ type dataGPS struct {
 	Lat  float32
 	Lon  float32
 	Spd  float32
+	Time time.Time
+}
+type dataACCEL struct {
+	X    float32
+	Y    float32
+	Z    float32
+	Time time.Time
+}
+type dataSUS_SPD struct {
+	Spd  float32
+	Time time.Time
+}
+type dataSUS_RST struct {
+	Rst  int
 	Time time.Time
 }
 
@@ -115,7 +139,7 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 	logrus.Debugf("New PSU value %s", msg.Topic())
 
 	// Unmarshal the payload
-	var payload payloadPSU
+	var payload payloadAll
 	err := json.Unmarshal(msg.Payload(), &payload)
 	if err != nil {
 		//fmt.Printf("Error: '%s', payload '%s'\n", err.Error(), string(msg.Payload()))
@@ -125,11 +149,11 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 
 	// Convert the payload to data
 	data := dataPSU{
-		Uop:  float32(payload.Uop) / 100,
-		Iop:  float32(payload.Iop) / 100,
-		Pop:  float32(payload.Pop) / 100,
-		Uip:  float32(payload.Uip) / 100,
-		Wh:   float32(payload.Wh) / 100,
+		Uop:  float32(payload.PSU.Uop) / 100,
+		Iop:  float32(payload.PSU.Iop) / 100,
+		Pop:  float32(payload.PSU.Pop) / 100,
+		Uip:  float32(payload.PSU.Uip) / 100,
+		Wh:   float32(payload.PSU.Wh) / 100,
 		Time: time.Now(),
 	}
 
@@ -178,7 +202,7 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 	logrus.Debugf("New GPS value %s", msg.Topic())
 
 	// Unmarshal the payload
-	var payload payloadGPS
+	var payload payloadAll
 	err := json.Unmarshal(msg.Payload(), &payload)
 	if err != nil {
 		//fmt.Printf("Error: '%s', payload '%s'\n", err.Error(), string(msg.Payload()))
@@ -188,9 +212,9 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 
 	// Convert the payload to data
 	data := dataGPS{
-		Lat:  payload.Lat,
-		Lon:  payload.Lon,
-		Spd:  payload.Spd,
+		Lat:  payload.GPS.Lat,
+		Lon:  payload.GPS.Lon,
+		Spd:  payload.GPS.Spd,
 		Time: time.Now(),
 	}
 
@@ -218,6 +242,121 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 	fields["Spd"] = data.Spd
 
 	point := write.NewPoint("GPS", tags, fields, data.Time)
+
+	if err := writeAPI.WritePoint(ctx, point); err != nil {
+		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
+	}
+}
+
+// Handle the ACCEL data
+func (srv *Service) handleTopicACCEL(ctx context.Context, client mqtt.Client, msg mqtt.Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
+		}
+	}()
+
+	logrus.Debugf("New ACCEL value %s", msg.Topic())
+
+	// Unmarshal the payload
+	var payload payloadAll
+	err := json.Unmarshal(msg.Payload(), &payload)
+	if err != nil {
+		//fmt.Printf("Error: '%s', payload '%s'\n", err.Error(), string(msg.Payload()))
+		logrus.WithError(errors.Wrap(err, "ACCEL")).Error("Error")
+		return
+	}
+
+	// Convert the payload to data
+	data := dataACCEL{
+		X:    payload.ACCEL.X,
+		Y:    payload.ACCEL.Y,
+		Z:    payload.ACCEL.Z,
+		Time: time.Now(),
+	}
+
+	// for debugging reasons print the data
+	logrus.Debugf("X: %f, Y: %f, Z: %f\n", data.X, data.Y, data.Z)
+
+	// Get car ID from subtopic
+	var carID string
+	carID, err = extractCarID(msg, err)
+	if err != nil {
+		logrus.WithError(err).Error("Error")
+		return
+	}
+
+	org := "Kaste"
+	bucket := "CarData"
+	writeAPI := srv.Influxdb.WriteAPIBlocking(org, bucket)
+
+	tags := map[string]string{}
+	fields := map[string]interface{}{}
+
+	tags["CarID"] = carID
+	fields["X"] = data.X
+	fields["Y"] = data.Y
+	fields["Z"] = data.Z
+
+	point := write.NewPoint("ACCEL", tags, fields, data.Time)
+
+	if err := writeAPI.WritePoint(ctx, point); err != nil {
+		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
+	}
+}
+
+// Handle the SUS data
+func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg mqtt.Message) {
+	defer func() {
+		if r := recover(); r != nil {
+			logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
+		}
+	}()
+
+	// Read the speed or reset value
+	logrus.Debugf("New SUS value %s", msg.Topic())
+	var speed float32
+	var rst int
+	_, err := fmt.Sscanf(string(msg.Payload()), "SPD: %f", &speed)
+	if err != nil {
+		logrus.Debugf("No speed argument")
+		_, err = fmt.Sscanf(string(msg.Payload()), "RST: %d", &rst)
+		if err != nil {
+			logrus.WithError(errors.Wrap(err, "SUS")).Error("Error")
+			return
+		}
+	}
+
+	// for debugging reasons print the data
+	if speed != 0 {
+		logrus.Debugf("Speed: %f\n", speed)
+	} else {
+		logrus.Debugf("Reset: %d\n", rst)
+	}
+
+	// Get car ID from subtopic
+	var carID string
+	carID, err = extractCarID(msg, err)
+	if err != nil {
+		logrus.WithError(err).Error("Error")
+		return
+	}
+
+	org := "Kaste"
+	bucket := "CarData"
+	writeAPI := srv.Influxdb.WriteAPIBlocking(org, bucket)
+
+	tags := map[string]string{}
+	fields := map[string]interface{}{}
+
+	tags["CarID"] = carID
+	if speed != 0 {
+		fields["Spd"] = speed
+	} else {
+		fields["Rst"] = rst
+	}
+
+	point := write.NewPoint("SUS", tags, fields, time.Now())
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")

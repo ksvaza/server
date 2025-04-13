@@ -1,0 +1,52 @@
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f0f0f0;
+}
+
+.header {
+    margin: 10px auto;
+    background-color: #ddd;
+    width: 25%;
+    padding: 10px;
+    text-align: center;
+}
+
+.gatepanel {
+    margin: 10px auto;
+    width: 80%;
+    padding: 20px;
+    background-color: #fff;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.container {
+    margin: 10px auto;
+    width: 40%;
+    padding: 20px;
+    background-color: #eee;
+    border-radius: 5px;
+    display: flex;
+    flex-direction: row;
+    button {
+        width: 50%;
+        background-color: #f8f8f8; /* Slightly off white */
+        border: 1px solid #ccc; /* Original border color */
+    }
+    button:hover {
+        background-color: #e0e0e0; /* Slightly darker on hover */
+    }
+    button:active {
+        background-color: #d0d0d0; /* Even darker when pressed */
+    }
+    #username {
+        width: 50%;
+        height: 2em;
+    }
+    #password {
+        width: 50%;
+        height: 2em;
+    }
+}

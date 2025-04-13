@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Server</title>
+        <link rel="stylesheet" type="text/css" href="cardata.css" media="screen">
+        <script src="cardata.js"></script>
+    </head>
+    <body>
+        <div class="header">
+            <h2>Car Data</h2>
+            <a href="index.html">Back</a>
+        </div>
+        <div class="container">
+            <div class="auth_panel">
+                <input type="text" id="username" placeholder="Username">
+                <input type="password" id="password" placeholder="Password">
+                <button onclick="auth()">Authenticate</button>
+            </div>
+        </div>
+        <div class="data_panel">
+            <div class="request_panel">
+                <div>
+                    <input type="text" id="carID" placeholder="Car ID">
+                    <button onclick="refresh()">Refresh Data</button>
+                </div>
+                <div>
+                    <input type="number" id="refreshInterval" placeholder="Refresh Interval">
+                    <button onclick="updateInterval()">Update Interval</button>
+                </div>
+            </div>
+            <div class="data_visualiser">
+                <div class="race_data">
+                    
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

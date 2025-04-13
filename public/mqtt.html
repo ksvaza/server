@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Server</title>
+        <link rel="stylesheet" type="text/css" href="mqtt.css" media="screen">
+        <script src="mqtt.js"></script>
+    </head>
+    <body>
+        <div class="header">
+            <h2>MQTT</h2>
+            <a href="index.html">Back</a>
+        </div>
+        <div class="container">
+            <div class="authpanel">
+                <input type="text" id="username" placeholder="Username">
+                <input type="password" id="password" placeholder="Password">
+                <button onclick="auth()">Authenticate</button>
+            </div>
+            <div class="sendpanel">
+                <input type="text" id="topic" placeholder="Topic">
+                <input type="text" id="message" placeholder="Message">
+                <button onclick="send()">Send</button>
+            </div>
+        </div>
+        <div class="logpanel">
+            <button onclick="refreshLog()">Refresh Log</button>
+            <textarea id="log" readonly></textarea>
+        </div>
+    </body>
+</html>

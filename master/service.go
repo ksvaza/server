@@ -3,6 +3,7 @@ package master
 import (
 	"context"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -118,6 +119,22 @@ func (srv *Service) Run() {
 			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
 		}
 
+		token = srv.mqtt.Subscribe("ACCEL_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
+			srv.handleTopicACCEL(ctx, c, m)
+		})
+		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "ACCEL")).Error("Error")
+		}
+
+		token = srv.mqtt.Subscribe("SUS_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
+			srv.handleTopicSUS(ctx, c, m)
+		})
+		token.Wait()
+		if err := token.Error(); err != nil {
+			logrus.WithError(errors.Wrap(err, "SUS")).Error("Error")
+		}
+
 		<-ctx.Done()
 		srv.mqtt.Disconnect(250)
 	}()
@@ -131,9 +148,11 @@ func (srv *Service) Run() {
 			}
 		}()
 
-		fs := http.FileServer(http.Dir("./public"))
+		mime.AddExtensionType(".js", "application/javascript")
+		mime.AddExtensionType(".css", "text/css")
 		router := httprouter.New()
-		router.Handler("GET", "/", fs)
+		// router.Handler("GET", "/", fs) // , http.StripPrefix("/static", http.FileServer(http.Dir("./static/qa/"))
+		router.Handler("GET", "/files/*filepath", http.StripPrefix("/files/", http.FileServer(http.Dir("public"))))
 		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
 		router.GET("/api/car/:car/latest", srv.getLatestData)
 		router.GET("/api/car/:car/power", srv.setMass)

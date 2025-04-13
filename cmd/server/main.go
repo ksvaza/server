@@ -49,7 +49,7 @@ func main() {
 
 	logrus.AddHook(&master.StacktraceHook{})
 
-	logrus.SetLevel(logrus.DebugLevel)
+	logrus.SetLevel(logrus.TraceLevel)
 
 	logrus.Info("Car statistics server started")
 

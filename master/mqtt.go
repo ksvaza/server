@@ -50,9 +50,11 @@ func (srv *Service) handleTopic(client mqtt.Client, msg mqtt.Message) {
 func createMqttClient(host string, port int, username, password string) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions()
 	opts.AddBroker(fmt.Sprintf("tcp://%s:%d", host, port))
+	//opts.AddBroker(fmt.Sprintf("ssl://%s:%s@%s:%d", username, password, host, port))
 	opts.SetClientID("server")
 	opts.SetUsername(username)
 	opts.SetPassword(password)
+	//opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
 	opts.OnConnect = func(c mqtt.Client) { fmt.Println("Mqtt client connected!") }
 	opts.OnConnectionLost = func(c mqtt.Client, err error) { fmt.Printf("Connection lost: '%s'\n", err.Error()) }
 
