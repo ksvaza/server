@@ -149,11 +149,11 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 
 	// Convert the payload to data
 	data := dataPSU{
-		Uop:  float32(payload.PSU.Uop) / 100,
-		Iop:  float32(payload.PSU.Iop) / 100,
-		Pop:  float32(payload.PSU.Pop) / 100,
-		Uip:  float32(payload.PSU.Uip) / 100,
-		Wh:   float32(payload.PSU.Wh) / 100,
+		Uop:  float32(payload.PSU.Uop) / 1000,
+		Iop:  float32(payload.PSU.Iop) / 1000,
+		Pop:  float32(payload.PSU.Pop) / 1000,
+		Uip:  float32(payload.PSU.Uip) / 1000,
+		Wh:   float32(payload.PSU.Wh) / 1000,
 		Time: time.Now(),
 	}
 
@@ -181,6 +181,9 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
 	fields["Wh"] = data.Wh
+
+	CarDataStorageMap.SetPower(carID, float64(data.Pop))
+	CarDataStorageMap.NormalMessage(carID)
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
@@ -241,6 +244,8 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 	fields["Lon"] = data.Lon
 	fields["Spd"] = data.Spd
 
+	CarDataStorageMap.NormalMessage(carID)
+
 	point := write.NewPoint("GPS", tags, fields, data.Time)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -298,6 +303,8 @@ func (srv *Service) handleTopicACCEL(ctx context.Context, client mqtt.Client, ms
 	fields["Y"] = data.Y
 	fields["Z"] = data.Z
 
+	CarDataStorageMap.NormalMessage(carID)
+
 	point := write.NewPoint("ACCEL", tags, fields, data.Time)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -316,11 +323,11 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 	// Read the speed or reset value
 	logrus.Debugf("New SUS value %s", msg.Topic())
 	var speed float32
-	var rst int
+	var rst string
 	_, err := fmt.Sscanf(string(msg.Payload()), "SPD: %f", &speed)
 	if err != nil {
 		logrus.Debugf("No speed argument")
-		_, err = fmt.Sscanf(string(msg.Payload()), "RST: %d", &rst)
+		_, err = fmt.Sscanf(string(msg.Payload()), "RST: %s", &rst)
 		if err != nil {
 			logrus.WithError(errors.Wrap(err, "SUS")).Error("Error")
 			return
@@ -331,7 +338,7 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 	if speed != 0 {
 		logrus.Debugf("Speed: %f\n", speed)
 	} else {
-		logrus.Debugf("Reset: %d\n", rst)
+		logrus.Debugf("Reset: %s\n", rst)
 	}
 
 	// Get car ID from subtopic
@@ -352,8 +359,11 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 	tags["CarID"] = carID
 	if speed != 0 {
 		fields["Spd"] = speed
+		CarDataStorageMap.NormalMessage(carID)
 	} else {
 		fields["Rst"] = rst
+		CarDataStorageMap.SetPOR(carID, rst)
+		CarDataStorageMap.ErrorMessage(carID)
 	}
 
 	point := write.NewPoint("SUS", tags, fields, time.Now())
