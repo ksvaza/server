@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,6 +28,8 @@ type Service struct {
 	Influxdb   influxdb2.Client
 	mqtt       mqtt.Client
 	log        Log
+	CarTable   CarIDMap
+	RaceTable  RaceNameMap
 }
 
 type Config struct {
@@ -36,6 +39,25 @@ type Config struct {
 	MqttPassword   string
 	InfluxdbUrl    string
 	InfluxdbApikey string
+}
+
+var lastMessageTime atomic.Int64
+
+func withCORS(h httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // or "http://localhost:5173"
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		lastMessageTime.Store(time.Now().UnixMilli())
+
+		h(w, r, ps)
+	}
 }
 
 func NewService(config Config) *Service {
@@ -61,6 +83,7 @@ func (srv *Service) Run() {
 		defer wg.Done()
 		<-srv.StopSignal
 		logrus.Info("Stopping")
+		srv.mqtt = nil
 		cancel()
 	}()
 
@@ -79,61 +102,7 @@ func (srv *Service) Run() {
 			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
 		}
 
-		token := srv.mqtt.Subscribe("#", 1, srv.handleTopic)
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-		}
-
-		token = srv.mqtt.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
-			srv.handleOutdoorTemperature(ctx, c, m)
-		})
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-		}
-
-		token = srv.mqtt.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
-			srv.queryData(ctx, c, m)
-		})
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-		}
-
-		// Subscribe to car-server steam topics
-
-		token = srv.mqtt.Subscribe("PSU_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-			srv.handleTopicPSU(ctx, c, m)
-		})
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-		}
-
-		token = srv.mqtt.Subscribe("GPS_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-			srv.handleTopicGPS(ctx, c, m)
-		})
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-		}
-
-		token = srv.mqtt.Subscribe("ACCEL_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-			srv.handleTopicACCEL(ctx, c, m)
-		})
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "ACCEL")).Error("Error")
-		}
-
-		token = srv.mqtt.Subscribe("SUS_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-			srv.handleTopicSUS(ctx, c, m)
-		})
-		token.Wait()
-		if err := token.Error(); err != nil {
-			logrus.WithError(errors.Wrap(err, "SUS")).Error("Error")
-		}
+		srv.SubscribeMQTT(ctx)
 
 		<-ctx.Done()
 		srv.mqtt.Disconnect(250)
@@ -154,11 +123,23 @@ func (srv *Service) Run() {
 		// router.Handler("GET", "/", fs) // , http.StripPrefix("/static", http.FileServer(http.Dir("./static/qa/"))
 		router.Handler("GET", "/files/*filepath", http.StripPrefix("/files/", http.FileServer(http.Dir("public"))))
 		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
-		router.GET("/api/car/:car/latest", srv.getLatestData)
-		router.GET("/api/car/:car/power", srv.setMass)
-		router.PUT("/api/mqtt/send/*topic", srv.sendToMqtt)
-		router.GET("/api/mqtt/log", srv.getMqttLog)
-		router.DELETE("/api/mqtt/log", srv.deleteMqttLogs)
+
+		router.GET("/api/parameters", withCORS(srv.getParameters))
+		router.POST("/api/parameters", withCORS(srv.postParameters))
+		router.GET("/api/raceconfiguration", withCORS(srv.getRaceConfig))
+		router.POST("/api/raceconfiguration", withCORS(srv.postRaceConfig))
+		router.POST("/api/start-race", withCORS(srv.startRace))
+		router.POST("/api/end-race", withCORS(srv.endRace))
+		router.POST("/api/whofinished", withCORS(srv.whoFinished))
+
+		// ------------------------
+		router.GET("/api/car/:car/latest", withCORS(srv.getLatestData))
+		//router.GET("/api/car/:car/power", withCORS(srv.setMass)) // deprecated
+		router.PUT("/api/mqtt/send/*topic", withCORS(srv.sendToMqtt))
+		router.GET("/api/mqtt/log", withCORS(srv.getMqttLog))
+		router.DELETE("/api/mqtt/log", withCORS(srv.deleteMqttLogs))
+		router.GET("/api/race/:car/start", withCORS(srv.triggerRaceStart))   // should be POST
+		router.GET("/api/race/:car/finish", withCORS(srv.triggerRaceFinish)) // should be POST
 
 		err := http.ListenAndServe(":1884", router)
 		if err != nil {
@@ -183,13 +164,32 @@ func (srv *Service) Run() {
 				return
 			default:
 				time.Sleep(1 * time.Second)
-				if srv.mqtt == nil || srv.mqtt.IsConnected() {
-					break
+				if srv.mqtt != nil && srv.mqtt.IsConnected() {
+					continue
 				}
-				token := srv.mqtt.Connect()
-				token.Wait()
-				if err := token.Error(); err != nil {
+
+				client, err := recreateMqttClient()
+				if err != nil {
 					logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+					continue
+				}
+				srv.mqtt = client
+				logrus.Debugf("Reconnecting to MQTT broker %s:%d", srv.host, srv.port)
+
+				srv.SubscribeMQTT(ctx)
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		for {
+			time.Sleep(5 * time.Second)
+			last := lastMessageTime.Load()
+			if time.Since(time.UnixMilli(last)) > 10*time.Second {
+				logrus.Warn("No MQTT data received for 10s — forcing disconnect")
+				if srv.mqtt != nil && srv.mqtt.IsConnected() {
+					srv.mqtt.Disconnect(250) // trigger reconnect loop
 				}
 			}
 		}

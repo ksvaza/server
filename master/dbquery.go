@@ -12,7 +12,7 @@ import (
 type dataCarFull struct {
 	PSU     *dataPSU     `json:"PSU,omitempty"`
 	GPS     *dataGPS     `json:"GPS,omitempty"`
-	ACCEL   *dataACCEL   `json:"ACCEL,omitempty"`
+	ACCEL   *dataAccel   `json:"ACCEL,omitempty"`
 	SUS_SPD *dataSUS_SPD `json:"SUS_SPD,omitempty"`
 	SUS_RST *dataSUS_RST `json:"SUS_RST,omitempty"`
 }
@@ -139,7 +139,7 @@ from(bucket: "CarData")
 	return nil, nil
 }
 
-func (srv *Service) queryLatestACCEL(ctx context.Context, carID string) (*dataACCEL, error) {
+func (srv *Service) queryLatestACCEL(ctx context.Context, carID string) (*dataAccel, error) {
 	queryAPI := srv.Influxdb.QueryAPI("Kaste")
 
 	// latest data from ACCEL
@@ -159,12 +159,12 @@ from(bucket: "CarData")
 		fields["Y"] = data.Y
 		fields["Z"] = data.Z
 	*/
-	accel := map[time.Time]*dataACCEL{}
+	accel := map[time.Time]*dataAccel{}
 	for results.Next() {
 		raw := results.Record()
 		t := raw.Time()
 		if _, found := accel[t]; !found {
-			accel[t] = &dataACCEL{Time: t}
+			accel[t] = &dataAccel{Time: t}
 		}
 		switch raw.Field() {
 		case "X":

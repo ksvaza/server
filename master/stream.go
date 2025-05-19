@@ -50,26 +50,26 @@ type payloadOutPSU struct {
 	I int `json:"I"`
 }
 type payloadPSU struct {
-	Uop int `json:"Uop,omitempty"`
-	Iop int `json:"Iop,omitempty"`
-	Pop int `json:"Pop,omitempty"`
-	Uip int `json:"Uip,omitempty"`
-	Wh  int `json:"Wh,omitempty"`
+	Uop int `json:"Uop"`
+	Iop int `json:"Iop"`
+	Pop int `json:"Pop"`
+	Uip int `json:"Uip"`
+	Wh  int `json:"Wh"`
 }
 type payloadGPS struct {
-	Lat float32 `json:"Lat,omitempty"`
-	Lon float32 `json:"Lon,omitempty"`
-	Spd float32 `json:"Spd,omitempty"`
+	Lat float32 `json:"Lat"`
+	Lon float32 `json:"Lon"`
+	Spd float32 `json:"Spd"`
 }
-type payloadACCEL struct {
-	X float32 `json:"X,omitempty"`
-	Y float32 `json:"Y,omitempty"`
-	Z float32 `json:"Z,omitempty"`
+type payloadAccel struct {
+	X float32 `json:"X"`
+	Y float32 `json:"Y"`
+	Z float32 `json:"Z"`
 }
 type payloadAll struct {
 	PSU   payloadPSU   `json:"PSU"`
 	GPS   payloadGPS   `json:"GPS"`
-	ACCEL payloadACCEL `json:"ACCEL"`
+	Accel payloadAccel `json:"Accel"`
 }
 
 // Data structs
@@ -91,7 +91,7 @@ type dataGPS struct {
 	Spd  float32
 	Time time.Time
 }
-type dataACCEL struct {
+type dataAccel struct {
 	X    float32
 	Y    float32
 	Z    float32
@@ -149,11 +149,11 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 
 	// Convert the payload to data
 	data := dataPSU{
-		Uop:  float32(payload.PSU.Uop) / 1000,
-		Iop:  float32(payload.PSU.Iop) / 1000,
-		Pop:  float32(payload.PSU.Pop) / 1000,
-		Uip:  float32(payload.PSU.Uip) / 1000,
-		Wh:   float32(payload.PSU.Wh) / 1000,
+		Uop:  float32(payload.PSU.Uop) / 1000.0,
+		Iop:  float32(payload.PSU.Iop) / 1000.0,
+		Pop:  float32(payload.PSU.Pop) / 1000.0,
+		Uip:  float32(payload.PSU.Uip) / 1000.0,
+		Wh:   float32(payload.PSU.Wh) / 1000.0,
 		Time: time.Now(),
 	}
 
@@ -180,10 +180,12 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Iop"] = data.Iop
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
-	fields["Wh"] = data.Wh
-
-	CarDataStorageMap.SetPower(carID, float64(data.Pop))
-	CarDataStorageMap.NormalMessage(carID)
+	//fields["Wh"] = srv.dataCarStorage.MqttMessagePSU(carID, float64(data.Pop))
+	fields["Wh"], err = srv.CarTable.MqttMessagePSU(carID, float64(data.Pop))
+	if err != nil {
+		logrus.WithError(err).Error("Error")
+		return
+	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
@@ -244,7 +246,11 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 	fields["Lon"] = data.Lon
 	fields["Spd"] = data.Spd
 
-	CarDataStorageMap.NormalMessage(carID)
+	err = srv.CarTable.MqttMessageAny(carID)
+	if err != nil {
+		logrus.WithError(err).Error("Error")
+		return
+	}
 
 	point := write.NewPoint("GPS", tags, fields, data.Time)
 
@@ -254,29 +260,29 @@ func (srv *Service) handleTopicGPS(ctx context.Context, client mqtt.Client, msg 
 }
 
 // Handle the ACCEL data
-func (srv *Service) handleTopicACCEL(ctx context.Context, client mqtt.Client, msg mqtt.Message) {
+func (srv *Service) handleTopicAccel(ctx context.Context, client mqtt.Client, msg mqtt.Message) {
 	defer func() {
 		if r := recover(); r != nil {
 			logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Panic")
 		}
 	}()
 
-	logrus.Debugf("New ACCEL value %s", msg.Topic())
+	logrus.Debugf("New Accel value %s", msg.Topic())
 
 	// Unmarshal the payload
 	var payload payloadAll
 	err := json.Unmarshal(msg.Payload(), &payload)
 	if err != nil {
 		//fmt.Printf("Error: '%s', payload '%s'\n", err.Error(), string(msg.Payload()))
-		logrus.WithError(errors.Wrap(err, "ACCEL")).Error("Error")
+		logrus.WithError(errors.Wrap(err, "Accel")).Error("Error")
 		return
 	}
 
 	// Convert the payload to data
-	data := dataACCEL{
-		X:    payload.ACCEL.X,
-		Y:    payload.ACCEL.Y,
-		Z:    payload.ACCEL.Z,
+	data := dataAccel{
+		X:    payload.Accel.X,
+		Y:    payload.Accel.Y,
+		Z:    payload.Accel.Z,
 		Time: time.Now(),
 	}
 
@@ -303,9 +309,13 @@ func (srv *Service) handleTopicACCEL(ctx context.Context, client mqtt.Client, ms
 	fields["Y"] = data.Y
 	fields["Z"] = data.Z
 
-	CarDataStorageMap.NormalMessage(carID)
+	err = srv.CarTable.MqttMessageAny(carID)
+	if err != nil {
+		logrus.WithError(err).Error("Error")
+		return
+	}
 
-	point := write.NewPoint("ACCEL", tags, fields, data.Time)
+	point := write.NewPoint("Accel", tags, fields, data.Time)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
@@ -323,11 +333,11 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 	// Read the speed or reset value
 	logrus.Debugf("New SUS value %s", msg.Topic())
 	var speed float32
-	var rst string
+	var rst int
 	_, err := fmt.Sscanf(string(msg.Payload()), "SPD: %f", &speed)
 	if err != nil {
 		logrus.Debugf("No speed argument")
-		_, err = fmt.Sscanf(string(msg.Payload()), "RST: %s", &rst)
+		_, err = fmt.Sscanf(string(msg.Payload()), "RST: %d", &rst)
 		if err != nil {
 			logrus.WithError(errors.Wrap(err, "SUS")).Error("Error")
 			return
@@ -338,7 +348,7 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 	if speed != 0 {
 		logrus.Debugf("Speed: %f\n", speed)
 	} else {
-		logrus.Debugf("Reset: %s\n", rst)
+		logrus.Debugf("Reset: %d\n", rst)
 	}
 
 	// Get car ID from subtopic
@@ -359,11 +369,14 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 	tags["CarID"] = carID
 	if speed != 0 {
 		fields["Spd"] = speed
-		CarDataStorageMap.NormalMessage(carID)
+		err = srv.CarTable.MqttMessageAny(carID)
 	} else {
 		fields["Rst"] = rst
-		CarDataStorageMap.SetPOR(carID, rst)
-		CarDataStorageMap.ErrorMessage(carID)
+		err = srv.CarTable.MqttMessageRST(carID, "", srv)
+	}
+	if err != nil {
+		logrus.WithError(err).Error("Error")
+		return
 	}
 
 	point := write.NewPoint("SUS", tags, fields, time.Now())
@@ -379,8 +392,8 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 // Send the PSU data
 func (srv *Service) sendPSUData(carID string, data dataOutPSU) error {
 	payload := payloadOutPSU{
-		U: int(math.Round(float64(data.U) * 100.0)),
-		I: int(math.Round(float64(data.I) * 100.0)),
+		U: int(math.Round(float64(data.U) * 1000.0)),
+		I: int(math.Round(float64(data.I) * 1000.0)),
 	}
 	bytes, err := json.Marshal(payload)
 	if err != nil {
