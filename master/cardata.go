@@ -33,6 +33,9 @@ type CarIDMap map[string]CarData
 // ----------------------------------------------------------------
 
 func (table *CarIDMap) GetCarParameters() []CarParameters {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	var parameters []CarParameters
 	for _, instance := range *table {
 		parameters = append(parameters, CarParameters{
@@ -48,9 +51,15 @@ func (table *CarIDMap) GetCarParameters() []CarParameters {
 }
 
 func (table *CarIDMap) UpdateCarParameters(parameters []CarParameters) {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	found := make(map[string]bool, len(*table))
 	for _, instance := range parameters {
 		if car, ok := (*table)[instance.CarID]; ok {
+			if car.RaceData == nil {
+				car.RaceData = make(map[string]CarRaceData)
+			}
 			car.Params.CarID = instance.CarID
 			car.Params.Username = instance.Username
 			car.Params.Avatar = instance.Avatar
@@ -88,6 +97,9 @@ func (table *CarIDMap) UpdateCarParameters(parameters []CarParameters) {
 // ----------------------------------------------------------------
 
 func (table *CarIDMap) RaceStart(srv *Service) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if CurrentRace == nil {
 		return errors.New("CurrentRace is nil")
 	}
@@ -112,6 +124,9 @@ func (table *CarIDMap) RaceStart(srv *Service) error {
 }
 
 func (table *CarIDMap) CarRaceFinish(carID string) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if car, ok := (*table)[carID]; ok {
 		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
 			raceData.RaceMode = false
@@ -126,6 +141,9 @@ func (table *CarIDMap) CarRaceFinish(carID string) error {
 }
 
 func (table *CarIDMap) MqttMessagePSU(carID string, power float64) (float64, error) {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if car, ok := (*table)[carID]; ok {
 		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
 			delta := time.Since(raceData.timer)
@@ -146,6 +164,9 @@ func (table *CarIDMap) MqttMessagePSU(carID string, power float64) (float64, err
 }
 
 func (table *CarIDMap) MqttMessageAny(carID string) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if car, ok := (*table)[carID]; ok {
 		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
 			delta := time.Since(raceData.timer)
@@ -164,6 +185,9 @@ func (table *CarIDMap) MqttMessageAny(carID string) error {
 }
 
 func (table *CarIDMap) MqttMessageRST(carID string, porCode string, srv *Service) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if car, ok := (*table)[carID]; ok {
 		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
 			raceData.timer = time.Now()
@@ -178,6 +202,9 @@ func (table *CarIDMap) MqttMessageRST(carID string, porCode string, srv *Service
 }
 
 func (table *CarIDMap) SendMessagePSU(carID string, srv *Service) {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if car, ok := (*table)[carID]; ok {
 		payload := dataOutPSU{U: float32(car.Params.SetVoltage), I: float32(car.Params.MaxCurrent)}
 		if raceData, exists := car.RaceData[CurrentRace.Name]; exists && !raceData.RaceMode {

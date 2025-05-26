@@ -16,6 +16,9 @@ type RaceNameMap map[string]RaceConfig
 var CurrentRace *RaceConfig
 
 func (table *RaceNameMap) GetRaceConfig() []RaceConfig {
+	if *table == nil {
+		*table = make(RaceNameMap)
+	}
 	var configs []RaceConfig
 	for _, instance := range *table {
 		configs = append(configs, RaceConfig{
@@ -29,6 +32,9 @@ func (table *RaceNameMap) GetRaceConfig() []RaceConfig {
 }
 
 func (table *RaceNameMap) UpdateRaceConfig(configs []RaceConfig) {
+	if *table == nil {
+		*table = make(RaceNameMap)
+	}
 	found := make(map[string]bool, len(*table))
 	for _, instance := range configs {
 		if _, ok := (*table)[instance.Name]; ok {
@@ -50,6 +56,9 @@ func (table *RaceNameMap) UpdateRaceConfig(configs []RaceConfig) {
 }
 
 func (table *CarIDMap) StartRace(srv *Service) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if CurrentRace == nil {
 		return errors.New("CurrentRace is nil")
 	}
@@ -75,6 +84,9 @@ func (table *CarIDMap) StartRace(srv *Service) error {
 }
 
 func (table *CarIDMap) EndRace(srv *Service) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if CurrentRace == nil {
 		return errors.New("CurrentRace is nil")
 	}
@@ -97,6 +109,9 @@ func (table *CarIDMap) EndRace(srv *Service) error {
 }
 
 func (table *CarIDMap) FinishRace(srv *Service, carID string) error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
 	if CurrentRace == nil {
 		return errors.New("CurrentRace is nil")
 	}

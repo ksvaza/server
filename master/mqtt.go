@@ -113,7 +113,8 @@ func (srv *Service) SubscribeMQTT(ctx context.Context) {
 	// Subscribe to car-server steam topics
 
 	token = srv.mqtt.Subscribe("PSU_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-		srv.handleTopicPSU(ctx, c, m)
+		//srv.handleTopicPSU(ctx, c, m)
+		srv.mqttReceivePSU(ctx, c, m)
 	})
 	token.Wait()
 	if err := token.Error(); err != nil {
@@ -121,7 +122,8 @@ func (srv *Service) SubscribeMQTT(ctx context.Context) {
 	}
 
 	token = srv.mqtt.Subscribe("GPS_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-		srv.handleTopicGPS(ctx, c, m)
+		//srv.handleTopicGPS(ctx, c, m)
+		srv.mqttReceiveGPS(ctx, c, m)
 	})
 	token.Wait()
 	if err := token.Error(); err != nil {
@@ -129,7 +131,8 @@ func (srv *Service) SubscribeMQTT(ctx context.Context) {
 	}
 
 	token = srv.mqtt.Subscribe("Accel_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-		srv.handleTopicAccel(ctx, c, m)
+		//srv.handleTopicAccel(ctx, c, m)
+		srv.mqttReceiveAccel(ctx, c, m)
 	})
 	token.Wait()
 	if err := token.Error(); err != nil {
@@ -137,7 +140,8 @@ func (srv *Service) SubscribeMQTT(ctx context.Context) {
 	}
 
 	token = srv.mqtt.Subscribe("SUS_OUT/#", 1, func(c mqtt.Client, m mqtt.Message) {
-		srv.handleTopicSUS(ctx, c, m)
+		//srv.handleTopicSUS(ctx, c, m)
+		srv.mqttReceiveSUS(ctx, c, m)
 	})
 	token.Wait()
 	if err := token.Error(); err != nil {

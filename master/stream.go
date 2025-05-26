@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"strconv"
-	"strings"
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
@@ -111,19 +109,6 @@ type dataSUS_RST struct {
 
 // Tool functions
 // ----------------------------------------------------------------
-
-func extractCarID(msg mqtt.Message, err error) (string, error) {
-	topics := strings.Split(msg.Topic(), "/")
-	if len(topics) < 2 {
-		return "", errors.Wrap(err, "Invalid topic")
-	}
-
-	_, err = strconv.ParseInt(topics[1], 10, 0)
-	if err != nil {
-		return "", errors.Wrap(err, "Subtopic is not a number")
-	}
-	return topics[1], nil
-}
 
 // MQTT Data-in topic handlers
 // ----------------------------------------------------------------

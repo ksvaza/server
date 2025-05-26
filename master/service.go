@@ -123,14 +123,14 @@ func (srv *Service) Run() {
 		// router.Handler("GET", "/", fs) // , http.StripPrefix("/static", http.FileServer(http.Dir("./static/qa/"))
 		router.Handler("GET", "/files/*filepath", http.StripPrefix("/files/", http.FileServer(http.Dir("public"))))
 		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
-
-		router.GET("/api/parameters", withCORS(srv.getParameters))
-		router.POST("/api/parameters", withCORS(srv.postParameters))
-		router.GET("/api/raceconfiguration", withCORS(srv.getRaceConfig))
-		router.POST("/api/raceconfiguration", withCORS(srv.postRaceConfig))
-		router.POST("/api/start-race", withCORS(srv.startRace))
-		router.POST("/api/end-race", withCORS(srv.endRace))
-		router.POST("/api/whofinished", withCORS(srv.whoFinished))
+		// ---------------------------------------------------------------------------------  ieteicamie jaunie nosaukumi implementētajiem api galiem
+		router.GET("/api/parameters", withCORS(srv.getParameters))          // cars
+		router.POST("/api/parameters", withCORS(srv.postParameters))        // cars
+		router.GET("/api/raceconfiguration", withCORS(srv.getRaceConfig))   // races
+		router.POST("/api/raceconfiguration", withCORS(srv.postRaceConfig)) // races
+		router.POST("/api/start-race", withCORS(srv.startRace))             // race/start
+		router.POST("/api/end-race", withCORS(srv.endRace))                 // race/end
+		router.POST("/api/whofinished", withCORS(srv.whoFinished))          // car/finish
 
 		// ------------------------
 		router.GET("/api/car/:car/latest", withCORS(srv.getLatestData))
