@@ -13,7 +13,7 @@ type RaceConfig struct {
 }
 type RaceNameMap map[string]RaceConfig
 
-var CurrentRace *RaceConfig
+var CurrentRaceConfig *RaceConfig
 
 func (table *RaceNameMap) GetRaceConfig() []RaceConfig {
 	if *table == nil {
@@ -59,11 +59,11 @@ func (table *CarIDMap) StartRace(srv *Service) error {
 	if *table == nil {
 		*table = make(CarIDMap)
 	}
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		return errors.New("CurrentRace is nil")
 	}
 	for carID, car := range *table {
-		raceData, exists := car.RaceData[CurrentRace.Name]
+		raceData, exists := car.RaceData[CurrentRaceConfig.Name]
 		if !exists {
 			raceData = CarRaceData{
 				TotalWh:  0,
@@ -75,7 +75,7 @@ func (table *CarIDMap) StartRace(srv *Service) error {
 		raceData.RaceTime = 0
 		raceData.RaceMode = true
 		raceData.Finished = false
-		car.RaceData[CurrentRace.Name] = raceData
+		car.RaceData[CurrentRaceConfig.Name] = raceData
 		(*table)[carID] = car
 
 		table.SendMessagePSU(carID, srv)
@@ -87,11 +87,11 @@ func (table *CarIDMap) EndRace(srv *Service) error {
 	if *table == nil {
 		*table = make(CarIDMap)
 	}
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		return errors.New("CurrentRace is nil")
 	}
 	for carID, car := range *table {
-		raceData, exists := car.RaceData[CurrentRace.Name]
+		raceData, exists := car.RaceData[CurrentRaceConfig.Name]
 		if !exists {
 			raceData = CarRaceData{
 				TotalWh:  0,
@@ -100,7 +100,7 @@ func (table *CarIDMap) EndRace(srv *Service) error {
 			}
 		}
 		raceData.RaceMode = false
-		car.RaceData[CurrentRace.Name] = raceData
+		car.RaceData[CurrentRaceConfig.Name] = raceData
 		(*table)[carID] = car
 
 		table.SendMessagePSU(carID, srv)
@@ -112,7 +112,7 @@ func (table *CarIDMap) FinishRace(srv *Service, carID string) error {
 	if *table == nil {
 		*table = make(CarIDMap)
 	}
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		return errors.New("CurrentRace is nil")
 	}
 	car, exists := (*table)[carID]
@@ -120,13 +120,13 @@ func (table *CarIDMap) FinishRace(srv *Service, carID string) error {
 		return errors.Errorf("Car with ID %s not found", carID)
 	}
 
-	raceData, exists := car.RaceData[CurrentRace.Name]
+	raceData, exists := car.RaceData[CurrentRaceConfig.Name]
 	if !exists {
-		return errors.Errorf("Race data for race %s not found for car %s", CurrentRace.Name, carID)
+		return errors.Errorf("Race data for race %s not found for car %s", CurrentRaceConfig.Name, carID)
 	}
 	raceData.RaceMode = false
 	raceData.Finished = true
-	car.RaceData[CurrentRace.Name] = raceData
+	car.RaceData[CurrentRaceConfig.Name] = raceData
 	(*table)[carID] = car
 
 	return nil

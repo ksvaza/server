@@ -11,10 +11,196 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+func (srv *Service) getCars(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/cars
+	logrus.Debugf("got getCars request %+v", ps)
+
+	cars := srv.AllData.GetCars()
+
+	//srv.AllData.SaveToFile()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(cars)
+}
+
+func (srv *Service) postCars(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/cars
+	logrus.Debugf("got postCars request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	var cars []Parameters
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+
+	if err := json.Unmarshal(body, &cars); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	srv.AllData.UpdateCars(cars)
+
+	//srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (srv *Service) getRaces(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api
+	logrus.Debugf("got getRaces request %+v", ps)
+
+	races := srv.AllData.GetRaces()
+
+	//srv.AllData.SaveToFile()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(races)
+}
+
+func (srv *Service) postRaces(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	logrus.Debugf("got postRaces request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+	var races []Race
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+
+	if err := json.Unmarshal(body, &races); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	srv.AllData.UpdateRaces(races)
+
+	//srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (srv *Service) getResults(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/results
+	logrus.Debugf("got getResults request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	raceName := ps.ByName("racename")
+
+	var results []Result
+	for s, r := range srv.AllData.Races {
+		if r.RaceName == raceName {
+			res, err := srv.AllData.GetResults(s)
+			if err != nil {
+				errorHandler(err, http.StatusInternalServerError)
+				return
+			}
+			results = append(results, res...)
+		}
+	}
+
+	//srv.AllData.SaveToFile()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(results)
+}
+
+func (srv *Service) getLeaderboard(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/leaderboard
+	logrus.Debugf("got getLeaderboard request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	leaderboard, err := srv.AllData.GetLeaderboard()
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(leaderboard)
+}
+
+func (srv *Service) postStartRace(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/race/start
+	logrus.Debugf("got postStartRace request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+	var start []StartInstance
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(body, &start); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	for _, s := range start {
+		err = srv.AllData.StartRace(s, srv)
+		if err != nil {
+			errorHandler(err, http.StatusInternalServerError)
+			return
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (srv *Service) postCarFinish(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/car/finish
+	logrus.Debugf("got postCarFinish request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	var finish FinishInstance
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(body, &finish); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	err = srv.AllData.CarRaceFinish(finish, srv)
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// ----------------------------------------------------------------
+
 func (srv *Service) getParameters(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/parameters
 	logrus.Debugf("got get request %+v", ps)
 
 	params := srv.CarTable.GetCarParameters()
+
+	srv.CarTable.SaveToFile()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -43,6 +229,8 @@ func (srv *Service) postParameters(w http.ResponseWriter, r *http.Request, ps ht
 
 	srv.CarTable.UpdateCarParameters(params)
 
+	srv.CarTable.SaveToFile()
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -50,6 +238,8 @@ func (srv *Service) getRaceConfig(w http.ResponseWriter, r *http.Request, ps htt
 	logrus.Debugf("got get request %+v", ps)
 
 	configs := srv.RaceTable.GetRaceConfig()
+
+	srv.RaceTable.SaveToFile()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -78,6 +268,8 @@ func (srv *Service) postRaceConfig(w http.ResponseWriter, r *http.Request, ps ht
 
 	srv.RaceTable.UpdateRaceConfig(configs)
 
+	srv.RaceTable.SaveToFile()
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -103,7 +295,7 @@ func (srv *Service) startRace(w http.ResponseWriter, r *http.Request, ps httprou
 	logrus.Debugf("Starting race %+v", race)
 
 	if r, ok := srv.RaceTable[race.Name]; ok {
-		CurrentRace = &r
+		CurrentRaceConfig = &r
 	} else {
 		errorHandler(fmt.Errorf("race '%s' not found", race.Name), http.StatusInternalServerError)
 	}
@@ -138,14 +330,14 @@ func (srv *Service) endRace(w http.ResponseWriter, r *http.Request, ps httproute
 
 	logrus.Debugf("Ending race %+v", race)
 
-	if race.Name == CurrentRace.Name {
+	if race.Name == CurrentRaceConfig.Name {
 		err = srv.CarTable.EndRace(srv)
 		if err != nil {
 			errorHandler(err, http.StatusInternalServerError)
 			return
 		}
 	} else {
-		errorHandler(fmt.Errorf("cannot end race '%s' when current race is '%s'", race.Name, CurrentRace.Name), http.StatusBadRequest)
+		errorHandler(fmt.Errorf("cannot end race '%s' when current race is '%s'", race.Name, CurrentRaceConfig.Name), http.StatusBadRequest)
 		return
 	}
 

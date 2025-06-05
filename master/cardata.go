@@ -36,6 +36,7 @@ func (table *CarIDMap) GetCarParameters() []CarParameters {
 	if *table == nil {
 		*table = make(CarIDMap)
 	}
+	logrus.Printf("%+v", *table)
 	var parameters []CarParameters
 	for _, instance := range *table {
 		parameters = append(parameters, CarParameters{
@@ -100,11 +101,11 @@ func (table *CarIDMap) RaceStart(srv *Service) error {
 	if *table == nil {
 		*table = make(CarIDMap)
 	}
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		return errors.New("CurrentRace is nil")
 	}
 	for carID, car := range *table {
-		raceData, exists := car.RaceData[CurrentRace.Name]
+		raceData, exists := car.RaceData[CurrentRaceConfig.Name]
 		if !exists {
 			raceData = CarRaceData{
 				TotalWh:  0,
@@ -115,7 +116,7 @@ func (table *CarIDMap) RaceStart(srv *Service) error {
 		}
 		raceData.RaceTime = 0
 		raceData.RaceMode = true
-		car.RaceData[CurrentRace.Name] = raceData
+		car.RaceData[CurrentRaceConfig.Name] = raceData
 		(*table)[carID] = car
 
 		table.SendMessagePSU(carID, srv)
@@ -128,9 +129,9 @@ func (table *CarIDMap) CarRaceFinish(carID string) error {
 		*table = make(CarIDMap)
 	}
 	if car, ok := (*table)[carID]; ok {
-		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
+		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists {
 			raceData.RaceMode = false
-			car.RaceData[CurrentRace.Name] = raceData
+			car.RaceData[CurrentRaceConfig.Name] = raceData
 			(*table)[carID] = car
 			return nil
 		}
@@ -145,7 +146,7 @@ func (table *CarIDMap) MqttMessagePSU(carID string, power float64) (float64, err
 		*table = make(CarIDMap)
 	}
 	if car, ok := (*table)[carID]; ok {
-		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
+		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists {
 			delta := time.Since(raceData.timer)
 			err := table.MqttMessageAny(carID)
 			if err != nil {
@@ -154,7 +155,7 @@ func (table *CarIDMap) MqttMessagePSU(carID string, power float64) (float64, err
 			if raceData.RaceMode {
 				raceData.TotalWh += power * float64(delta.Hours())
 			}
-			car.RaceData[CurrentRace.Name] = raceData
+			car.RaceData[CurrentRaceConfig.Name] = raceData
 			(*table)[carID] = car
 			return raceData.TotalWh, nil
 		}
@@ -168,13 +169,13 @@ func (table *CarIDMap) MqttMessageAny(carID string) error {
 		*table = make(CarIDMap)
 	}
 	if car, ok := (*table)[carID]; ok {
-		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
+		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists {
 			delta := time.Since(raceData.timer)
 			raceData.timer = time.Now()
 			if raceData.RaceMode {
 				raceData.RaceTime += delta
 			}
-			car.RaceData[CurrentRace.Name] = raceData
+			car.RaceData[CurrentRaceConfig.Name] = raceData
 			(*table)[carID] = car
 			return nil
 		}
@@ -189,9 +190,9 @@ func (table *CarIDMap) MqttMessageRST(carID string, porCode string, srv *Service
 		*table = make(CarIDMap)
 	}
 	if car, ok := (*table)[carID]; ok {
-		if raceData, exists := car.RaceData[CurrentRace.Name]; exists {
+		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists {
 			raceData.timer = time.Now()
-			car.RaceData[CurrentRace.Name] = raceData
+			car.RaceData[CurrentRaceConfig.Name] = raceData
 			(*table)[carID] = car
 			table.SendMessagePSU(carID, srv)
 			return nil
@@ -207,7 +208,7 @@ func (table *CarIDMap) SendMessagePSU(carID string, srv *Service) {
 	}
 	if car, ok := (*table)[carID]; ok {
 		payload := dataOutPSU{U: float32(car.Params.SetVoltage), I: float32(car.Params.MaxCurrent)}
-		if raceData, exists := car.RaceData[CurrentRace.Name]; exists && !raceData.RaceMode {
+		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists && !raceData.RaceMode {
 			payload.I = 1048576
 		}
 		srv.sendPSUData(carID, payload)

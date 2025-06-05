@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -80,6 +81,11 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
 	fields["Wh"] = consumption
+	if CurrentRaceConfig != nil {
+		tags["Race"] = CurrentRaceConfig.Name
+	} else {
+		tags["Race"] = "nil"
+	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
@@ -89,7 +95,7 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
@@ -98,7 +104,7 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRace.Name
+	bucket = "RaceData/" + CurrentRaceConfig.Name
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -155,6 +161,11 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 	fields["Lat"] = data.Lat
 	fields["Lon"] = data.Lon
 	fields["Spd"] = data.Spd
+	if CurrentRaceConfig != nil {
+		tags["Race"] = CurrentRaceConfig.Name
+	} else {
+		tags["Race"] = "nil"
+	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
@@ -164,7 +175,7 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
@@ -173,7 +184,7 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRace.Name
+	bucket = "RaceData/" + CurrentRaceConfig.Name
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -230,6 +241,11 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 	fields["X"] = data.X
 	fields["Y"] = data.Y
 	fields["Z"] = data.Z
+	if CurrentRaceConfig != nil {
+		tags["Race"] = CurrentRaceConfig.Name
+	} else {
+		tags["Race"] = "nil"
+	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
@@ -239,7 +255,7 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
@@ -248,7 +264,7 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRace.Name
+	bucket = "RaceData/" + CurrentRaceConfig.Name
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -301,6 +317,11 @@ func (srv *Service) mqttReceiveSUS(ctx context.Context, client mqtt.Client, msg 
 		fields["Rst"] = rst
 		err = srv.CarTable.MqttMessageRST(carID, "", srv)
 	}
+	if CurrentRaceConfig != nil {
+		tags["Race"] = CurrentRaceConfig.Name
+	} else {
+		tags["Race"] = "nil"
+	}
 	if err != nil {
 		logrus.WithError(err).Error("Error")
 		return
@@ -312,7 +333,7 @@ func (srv *Service) mqttReceiveSUS(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRace == nil {
+	if CurrentRaceConfig == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
@@ -321,10 +342,70 @@ func (srv *Service) mqttReceiveSUS(ctx context.Context, client mqtt.Client, msg 
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRace.Name
+	bucket = "RaceData/" + CurrentRaceConfig.Name
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
+}
+
+func (table *CarIDMap) SaveToFile() error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
+	data, err := json.Marshal(*table)
+	if err != nil {
+		return errors.Wrap(err, "Failed to marshal CarIDMap")
+	}
+	err = os.WriteFile("caridmap.json", data, 0644)
+	if err != nil {
+		return errors.Wrap(err, "Failed to write CarIDMap to file")
+	}
+	return nil
+}
+
+func (table *CarIDMap) LoadFromFile() error {
+	if *table == nil {
+		*table = make(CarIDMap)
+	}
+	data, err := os.ReadFile("caridmap.json")
+	if err != nil {
+		return errors.Wrap(err, "Failed to read CarIDMap from file")
+	}
+	err = json.Unmarshal(data, table)
+	if err != nil {
+		return errors.Wrap(err, "Failed to unmarshal CarIDMap")
+	}
+	return nil
+}
+
+func (table *RaceNameMap) SaveToFile() error {
+	if *table == nil {
+		*table = make(RaceNameMap)
+	}
+	data, err := json.Marshal(*table)
+	if err != nil {
+		return errors.Wrap(err, "Failed to marshal RaceNameMap")
+	}
+	err = os.WriteFile("racenamemap.json", data, 0644)
+	if err != nil {
+		return errors.Wrap(err, "Failed to write RaceNameMap to file")
+	}
+	return nil
+}
+
+func (table *RaceNameMap) LoadFromFile() error {
+	if *table == nil {
+		*table = make(RaceNameMap)
+	}
+	data, err := os.ReadFile("racenamemap.json")
+	if err != nil {
+		return errors.Wrap(err, "Failed to read RaceNameMap from file")
+	}
+	err = json.Unmarshal(data, table)
+	if err != nil {
+		return errors.Wrap(err, "Failed to unmarshal RaceNameMap")
+	}
+	return nil
 }

@@ -30,6 +30,7 @@ type Service struct {
 	log        Log
 	CarTable   CarIDMap
 	RaceTable  RaceNameMap
+	AllData    AllData
 }
 
 type Config struct {
@@ -117,20 +118,35 @@ func (srv *Service) Run() {
 			}
 		}()
 
+		// err := srv.CarTable.LoadFromFile()
+		// if err != nil {
+		// 	logrus.WithError(errors.Wrap(err, "CarTable")).Error("Error loading car data")
+		// }
+		// err = srv.RaceTable.LoadFromFile()
+		// if err != nil {
+		// 	logrus.WithError(errors.Wrap(err, "RaceTable")).Error("Error loading race data")
+		// }
+
 		mime.AddExtensionType(".js", "application/javascript")
 		mime.AddExtensionType(".css", "text/css")
 		router := httprouter.New()
 		// router.Handler("GET", "/", fs) // , http.StripPrefix("/static", http.FileServer(http.Dir("./static/qa/"))
+		//router.Handler("GET", "/*filepath", http.FileServer(http.Dir("public")))
 		router.Handler("GET", "/files/*filepath", http.StripPrefix("/files/", http.FileServer(http.Dir("public"))))
 		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
-		// ---------------------------------------------------------------------------------  ieteicamie jaunie nosaukumi implementētajiem api galiem
-		router.GET("/api/parameters", withCORS(srv.getParameters))          // cars
-		router.POST("/api/parameters", withCORS(srv.postParameters))        // cars
-		router.GET("/api/raceconfiguration", withCORS(srv.getRaceConfig))   // races
-		router.POST("/api/raceconfiguration", withCORS(srv.postRaceConfig)) // races
-		router.POST("/api/start-race", withCORS(srv.startRace))             // race/start
-		router.POST("/api/end-race", withCORS(srv.endRace))                 // race/end
-		router.POST("/api/whofinished", withCORS(srv.whoFinished))          // car/finish
+
+		router.GET("/api/cars", withCORS(srv.getCars))
+		router.POST("/api/cars", withCORS(srv.postCars))
+		router.GET("/api/races", withCORS(srv.getRaces))
+		router.POST("/api/races", withCORS(srv.postRaces))
+		router.GET("/api/results/:racename", withCORS(srv.getResults))
+		router.GET("/api/leaderboard", withCORS(srv.getLeaderboard))
+		router.POST("/api/race/start", withCORS(srv.postStartRace))
+		router.POST("/api/car/finish", withCORS(srv.postCarFinish))
+
+		//router.POST("/api/race/start", withCORS(srv.startRace))
+		router.POST("/api/race/finish", withCORS(srv.endRace))
+		//router.POST("/api/car/finish", withCORS(srv.whoFinished))
 
 		// ------------------------
 		router.GET("/api/car/:car/latest", withCORS(srv.getLatestData))
