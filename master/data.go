@@ -10,10 +10,36 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api/write"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+func EnsureBucket(client influxdb2.Client, org, bucket string) (string, error) {
+	bucketsAPI := client.BucketsAPI()
+	organizationsAPI := client.OrganizationsAPI()
+	ctx := context.Background()
+
+	// Check if bucket exists
+	b, err := bucketsAPI.FindBucketByName(ctx, bucket)
+	if err == nil && b != nil {
+		return bucket, nil
+	}
+
+	// Find organization
+	organization, err := organizationsAPI.FindOrganizationByName(ctx, org)
+	if err != nil {
+		return "", err
+	}
+
+	// Create bucket
+	_, err = bucketsAPI.CreateBucketWithName(ctx, organization, bucket)
+	if err != nil {
+		return "", err
+	}
+	return bucket, nil
+}
 
 func extractCarID(msg mqtt.Message, err error) (string, error) {
 	topics := strings.Split(msg.Topic(), "/")
@@ -45,11 +71,11 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 	}
 
 	data := dataPSU{
-		Uop:  float32(payload.PSU.Uop) / 1000.0,
-		Iop:  float32(payload.PSU.Iop) / 1000.0,
-		Pop:  float32(payload.PSU.Pop) / 1000.0,
-		Uip:  float32(payload.PSU.Uip) / 1000.0,
-		Wh:   float32(payload.PSU.Wh) / 1000.0,
+		Uop:  float32(payload.PSU.Uop) / 100.0,
+		Iop:  float32(payload.PSU.Iop) / 100.0,
+		Pop:  float32(payload.PSU.Pop) / 100.0,
+		Uip:  float32(payload.PSU.Uip) / 100.0,
+		Wh:   float32(payload.PSU.Wh) / 100.0,
 		Time: time.Now(),
 	}
 
@@ -63,10 +89,14 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 	}
 
 	org := "Kaste"
-	bucket := "AllData"
+	bucket, err := EnsureBucket(srv.Influxdb, org, "AllData/"+srv.AllData.UUID.String())
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI := srv.Influxdb.WriteAPIBlocking(org, bucket)
 
-	consumption, err := srv.CarTable.MqttMessagePSU(carID, float64(data.Pop))
+	consumption, err := srv.AllData.MqttMessagePSU(carID, float64(data.Pop))
 	if err != nil {
 		logrus.WithError(err).Error("Error")
 		return
@@ -74,6 +104,8 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 
 	tags := map[string]string{}
 	fields := map[string]interface{}{}
+	var race *Race
+	var registered bool
 
 	tags["CarID"] = carID
 	fields["Uop"] = data.Uop
@@ -81,10 +113,15 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
 	fields["Wh"] = consumption
-	if CurrentRaceConfig != nil {
-		tags["Race"] = CurrentRaceConfig.Name
-	} else {
-		tags["Race"] = "nil"
+	if car, registered := srv.AllData.CarMap[carID]; registered {
+		race = car.CurrentRace
+		if race != nil {
+			fields["Race"] = race.RaceName
+			fields["Lap"] = race.Lap
+		} else {
+			fields["Race"] = "nil"
+			fields["Lap"] = 0
+		}
 	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
@@ -95,16 +132,20 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRaceConfig == nil {
+	if race == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
-	if _, exists := srv.CarTable[carID]; !exists {
+	if !registered {
 		logrus.Errorf("Car %s not registered", carID)
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRaceConfig.Name
+	bucket, err = EnsureBucket(srv.Influxdb, org, "RaceData/"+srv.AllData.UUID.String()+"/"+race.RaceName+"/"+strconv.Itoa(race.Lap))
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -144,11 +185,17 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 		return
 	}
 
+	srv.AllData.CheckSpeed(carID, data.Spd, srv)
+
 	org := "Kaste"
-	bucket := "AllData"
+	bucket, err := EnsureBucket(srv.Influxdb, org, "AllData/"+srv.AllData.UUID.String())
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI := srv.Influxdb.WriteAPIBlocking(org, bucket)
 
-	err = srv.CarTable.MqttMessageAny(carID)
+	err = srv.AllData.MqttMessageAny(carID)
 	if err != nil {
 		logrus.WithError(err).Error("Error")
 		return
@@ -156,15 +203,22 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 
 	tags := map[string]string{}
 	fields := map[string]interface{}{}
+	var race *Race
+	var registered bool
 
 	tags["CarID"] = carID
 	fields["Lat"] = data.Lat
 	fields["Lon"] = data.Lon
 	fields["Spd"] = data.Spd
-	if CurrentRaceConfig != nil {
-		tags["Race"] = CurrentRaceConfig.Name
-	} else {
-		tags["Race"] = "nil"
+	if car, registered := srv.AllData.CarMap[carID]; registered {
+		race = car.CurrentRace
+		if race != nil {
+			fields["Race"] = race.RaceName
+			fields["Lap"] = race.Lap
+		} else {
+			fields["Race"] = "nil"
+			fields["Lap"] = 0
+		}
 	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
@@ -175,16 +229,20 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRaceConfig == nil {
+	if race == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
-	if _, exists := srv.CarTable[carID]; !exists {
+	if !registered {
 		logrus.Errorf("Car %s not registered", carID)
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRaceConfig.Name
+	bucket, err = EnsureBucket(srv.Influxdb, org, "RaceData/"+srv.AllData.UUID.String()+"/"+race.RaceName+"/"+strconv.Itoa(race.Lap))
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -225,10 +283,14 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 	}
 
 	org := "Kaste"
-	bucket := "AllData"
+	bucket, err := EnsureBucket(srv.Influxdb, org, "AllData/"+srv.AllData.UUID.String())
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI := srv.Influxdb.WriteAPIBlocking(org, bucket)
 
-	err = srv.CarTable.MqttMessageAny(carID)
+	err = srv.AllData.MqttMessageAny(carID)
 	if err != nil {
 		logrus.WithError(err).Error("Error")
 		return
@@ -236,15 +298,22 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 
 	tags := map[string]string{}
 	fields := map[string]interface{}{}
+	var race *Race
+	var registered bool
 
 	tags["CarID"] = carID
 	fields["X"] = data.X
 	fields["Y"] = data.Y
 	fields["Z"] = data.Z
-	if CurrentRaceConfig != nil {
-		tags["Race"] = CurrentRaceConfig.Name
-	} else {
-		tags["Race"] = "nil"
+	if car, registered := srv.AllData.CarMap[carID]; registered {
+		race = car.CurrentRace
+		if race != nil {
+			fields["Race"] = race.RaceName
+			fields["Lap"] = race.Lap
+		} else {
+			fields["Race"] = "nil"
+			fields["Lap"] = 0
+		}
 	}
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
@@ -255,16 +324,20 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRaceConfig == nil {
+	if race == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
-	if _, exists := srv.CarTable[carID]; !exists {
+	if !registered {
 		logrus.Errorf("Car %s not registered", carID)
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRaceConfig.Name
+	bucket, err = EnsureBucket(srv.Influxdb, org, "RaceData/"+srv.AllData.UUID.String()+"/"+race.RaceName+"/"+strconv.Itoa(race.Lap))
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {
@@ -303,28 +376,43 @@ func (srv *Service) mqttReceiveSUS(ctx context.Context, client mqtt.Client, msg 
 	}
 
 	org := "Kaste"
-	bucket := "AllData"
+	bucket, err := EnsureBucket(srv.Influxdb, org, "AllData/"+srv.AllData.UUID.String())
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI := srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	tags := map[string]string{}
 	fields := map[string]interface{}{}
+	var race *Race
+	var registered bool
 
 	tags["CarID"] = carID
 	if speed != 0 {
 		fields["Spd"] = speed
-		err = srv.CarTable.MqttMessageAny(carID)
+		err = srv.AllData.MqttMessageAny(carID)
+		if err != nil {
+			logrus.WithError(err).Error("Error")
+			return
+		}
 	} else {
 		fields["Rst"] = rst
-		err = srv.CarTable.MqttMessageRST(carID, "", srv)
+		err = srv.AllData.MqttMessageRST(carID, "", srv)
+		if err != nil {
+			logrus.WithError(err).Error("Error")
+			return
+		}
 	}
-	if CurrentRaceConfig != nil {
-		tags["Race"] = CurrentRaceConfig.Name
-	} else {
-		tags["Race"] = "nil"
-	}
-	if err != nil {
-		logrus.WithError(err).Error("Error")
-		return
+	if car, registered := srv.AllData.CarMap[carID]; registered {
+		race = car.CurrentRace
+		if race != nil {
+			fields["Race"] = race.RaceName
+			fields["Lap"] = race.Lap
+		} else {
+			fields["Race"] = "nil"
+			fields["Lap"] = 0
+		}
 	}
 
 	point := write.NewPoint("SUS", tags, fields, time.Now())
@@ -333,16 +421,20 @@ func (srv *Service) mqttReceiveSUS(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(errors.Wrap(err, "InfluxDB")).Error("Error")
 	}
 
-	if CurrentRaceConfig == nil {
+	if race == nil {
 		logrus.Error("CurrentRace is nil")
 		return
 	}
-	if _, exists := srv.CarTable[carID]; !exists {
+	if !registered {
 		logrus.Errorf("Car %s not registered", carID)
 		return
 	}
 
-	bucket = "RaceData/" + CurrentRaceConfig.Name
+	bucket, err = EnsureBucket(srv.Influxdb, org, "RaceData/"+srv.AllData.UUID.String()+"/"+race.RaceName+"/"+strconv.Itoa(race.Lap))
+	if err != nil {
+		logrus.WithError(errors.Wrap(err, "EnsureBucket")).Error("Error")
+		return
+	}
 	writeAPI = srv.Influxdb.WriteAPIBlocking(org, bucket)
 
 	if err := writeAPI.WritePoint(ctx, point); err != nil {

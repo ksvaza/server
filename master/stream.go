@@ -44,8 +44,11 @@ GPS_OUT:
 }
 */
 type payloadOutPSU struct {
-	U int `json:"U"`
-	I int `json:"I"`
+	PSU struct {
+		U  int `json:"U"`
+		I  int `json:"I"`
+		St int `json:"St"`
+	} `json:"PSU"`
 }
 type payloadPSU struct {
 	Uop int `json:"Uop"`
@@ -72,8 +75,9 @@ type payloadAll struct {
 
 // Data structs
 type dataOutPSU struct {
-	U float32
-	I float32
+	U      float32
+	I      float32
+	Status int
 }
 type dataPSU struct { // psu dati ir jāreizina/jādala ar 100, piem. "U":4976 (no/uz psu) - 49.76V
 	Uop  float32
@@ -376,10 +380,10 @@ func (srv *Service) handleTopicSUS(ctx context.Context, client mqtt.Client, msg 
 
 // Send the PSU data
 func (srv *Service) sendPSUData(carID string, data dataOutPSU) error {
-	payload := payloadOutPSU{
-		U: int(math.Round(float64(data.U) * 1000.0)),
-		I: int(math.Round(float64(data.I) * 1000.0)),
-	}
+	payload := payloadOutPSU{}
+	payload.PSU.U = int(math.Round(float64(data.U) * 100.0))
+	payload.PSU.I = int(math.Round(float64(data.I) * 100.0))
+	payload.PSU.St = data.Status
 	bytes, err := json.Marshal(payload)
 	if err != nil {
 		return errors.Wrap(err, "JSON")

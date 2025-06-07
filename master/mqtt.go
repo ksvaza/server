@@ -47,6 +47,9 @@ func (l *Log) GetLogs() string {
 }
 
 func (srv *Service) handleTopic(client mqtt.Client, msg mqtt.Message) {
+	if len(msg.Topic()) >= 6 && msg.Topic()[:6] == "Aranet" {
+		return
+	}
 	fmt.Printf("Received message: '%s' from topic: %s\n", msg.Payload(), msg.Topic())
 	srv.log.AddLog(msg.Topic(), msg.Payload())
 }
@@ -60,8 +63,8 @@ func createMqttClient(host string, port int, username, password string) (mqtt.Cl
 	opts.SetClientID("server")
 	opts.SetUsername(username)
 	opts.SetPassword(password)
-	opts.SetKeepAlive(30 * time.Second)
-	opts.SetPingTimeout(10 * time.Second)
+	opts.SetKeepAlive(1 * time.Second)
+	opts.SetPingTimeout(2 * time.Second)
 	opts.AutoReconnect = false
 	opts.CleanSession = false
 	//opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: true})
@@ -94,21 +97,21 @@ func (srv *Service) SubscribeMQTT(ctx context.Context) {
 		logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
 	}
 
-	token = srv.mqtt.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
-		srv.handleOutdoorTemperature(ctx, c, m)
-	})
-	token.Wait()
-	if err := token.Error(); err != nil {
-		logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-	}
+	// token = srv.mqtt.Subscribe("Aranet/349681001757/sensors/10341A/json/measurements", 1, func(c mqtt.Client, m mqtt.Message) {
+	// 	srv.handleOutdoorTemperature(ctx, c, m)
+	// })
+	// token.Wait()
+	// if err := token.Error(); err != nil {
+	// 	logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+	// }
 
-	token = srv.mqtt.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
-		srv.queryData(ctx, c, m)
-	})
-	token.Wait()
-	if err := token.Error(); err != nil {
-		logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
-	}
+	// token = srv.mqtt.Subscribe("query", 1, func(c mqtt.Client, m mqtt.Message) {
+	// 	srv.queryData(ctx, c, m)
+	// })
+	// token.Wait()
+	// if err := token.Error(); err != nil {
+	// 	logrus.WithError(errors.Wrap(err, "MQTT")).Error("Error")
+	// }
 
 	// Subscribe to car-server steam topics
 

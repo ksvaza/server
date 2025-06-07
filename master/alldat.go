@@ -1,23 +1,30 @@
 package master
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 type AllData struct {
-	RaceCoeficient  float64
-	CarMap          map[string]Car  // map of [carID]
-	Races           map[string]Race // map of [raceName]
-	LastLeaderboard []LeaderboardEntry
+	UUID         uuid.UUID // Unique identifier for this instance
+	LastSave     time.Time // Timestamp of last file save
+	Settings     Settings
+	CarMap       map[string]Car                // map of [carID]
+	Races        map[string]Race               // map of [raceName_Lap]
+	Leaderboards map[string][]LeaderboardEntry // map of [ageGroup]
 }
 
 type Car struct {
-	Params      Parameters
-	CurrentRace *Race
+	Params            Parameters
+	CurrentRace       *Race
+	SpeedTestIterator int
 }
 
 type Parameters struct {
@@ -84,16 +91,32 @@ type Race struct {
 	RaceName string              `json:"RaceName"`
 	Lap      int                 `json:"Lap"`
 	Length   float64             `json:"Length"`
-	RaceData map[string]RaceData `json:"-"` // map of [carID]
+	RaceData map[string]RaceData `json:"RaceData"` // map of [carID]
 }
 
 type StartInstance struct {
 	RaceName string `json:"raceName"`
+	Lap      int    `json:"Lap"`
 	CarID    string `json:"ID"`
 }
 
 type FinishInstance struct {
 	CarID string `json:"ID"`
+}
+
+type PointsInstance struct {
+	CarID  string `json:"ID"`
+	Points int    `json:"Points"`
+}
+
+type Points struct {
+	CategoryName string           `json:"CategoryName"`
+	Points       []PointsInstance `json:"Points"`
+}
+
+type Settings struct {
+	RaceCoeficient float64 `json:"PowerCoef"`
+	MaxSpeed       float64 `json:"MaxSpd"`
 }
 
 func (a *AllData) GetCars() []Parameters {
@@ -107,7 +130,7 @@ func (a *AllData) GetCars() []Parameters {
 	return cars
 }
 
-func (a *AllData) UpdateCars(cars []Parameters) {
+func (a *AllData) UpdateCars(cars []Parameters, srv *Service) {
 	if a.CarMap == nil {
 		a.CarMap = make(map[string]Car)
 	}
@@ -130,6 +153,25 @@ func (a *AllData) UpdateCars(cars []Parameters) {
 			logrus.Debugf("Car %s was removed from CarMap", carID)
 		}
 	}
+	// Update PSU data for all registered cars based on new settings
+	for carID, car := range a.CarMap {
+		// Calculate max current
+		if car.Params.SetVoltage <= 0 {
+			logrus.Warnf("SetVoltage for car %s is zero or negative, skipping PSU update", carID)
+			continue
+		}
+		maxCurrent := car.Params.Mass * a.Settings.RaceCoeficient / car.Params.SetVoltage
+		car.Params.MaxCurrent = maxCurrent
+
+		payload := dataOutPSU{
+			U:      float32(car.Params.SetVoltage),
+			I:      float32(car.Params.MaxCurrent),
+			Status: 1,
+		}
+
+		srv.sendPSUData(carID, payload)
+	}
+
 }
 
 func raceKey(r Race) string {
@@ -183,11 +225,18 @@ func (a *AllData) GetResults(raceName string) ([]Result, error) {
 	results := make([]Result, 0, len(race.RaceData))
 	for carID, data := range race.RaceData {
 		if car, exists := a.CarMap[carID]; exists {
+			var efficiency, shellEff, avgPower, avgSpeed float64
 			// Calculate efficiency metrics
-			efficiency := data.TotalWh / (race.Length / 1000) / car.Params.Mass // Wh/km/kg
-			shellEff := (race.Length / 1000) / (data.TotalWh / 1000)            // km/kWh
-			avgPower := data.TotalWh / data.RaceTime.Hours()                    // W
-			avgSpeed := (race.Length / 1000) / data.RaceTime.Hours()            // km/h
+			if race.Length > 0 && data.RaceTime > 0 {
+				efficiency = data.TotalWh / (race.Length / 1000) / car.Params.Mass
+				shellEff = (race.Length / 1000) / (data.TotalWh / 1000)
+				avgPower = data.TotalWh / data.RaceTime.Hours()
+				avgSpeed = (race.Length / 1000) / data.RaceTime.Hours()
+			}
+			// efficiency := data.TotalWh / (race.Length / 1000) / car.Params.Mass // Wh/km/kg
+			// shellEff := (race.Length / 1000) / (data.TotalWh / 1000)            // km/kWh
+			// avgPower := data.TotalWh / data.RaceTime.Hours()                    // W
+			// avgSpeed := (race.Length / 1000) / data.RaceTime.Hours()            // km/h
 
 			result := Result{
 				RaceName:    race.RaceName,
@@ -208,102 +257,135 @@ func (a *AllData) GetResults(raceName string) ([]Result, error) {
 	return results, nil
 }
 
-// [
+func (a *AllData) UpdateLeaderboard() error {
+	// Group cars by age group
+	ageGroups := make(map[string][]Car)
+	allCars := []Car{}
 
-// {
-//  "ID": 69,
-//  "username": "Alice",
-//  “avatar”: “url/api/images/avatar.png”,
-//  "Category names": ["CategoryA", "CategoryAB", "CategoryC"],
-//  "Category points": [10, 15, 8]
+	for _, car := range a.CarMap {
+		ageGroup := car.Params.AgeGroup
+		ageGroups[ageGroup] = append(ageGroups[ageGroup], car)
+		allCars = append(allCars, car) // Add to overall group
+	}
+	ageGroups["all"] = allCars // Add "all" group for overall leaderboard
 
-// "Position": 4
+	// Process each age group (including "all" string for overall)
+	for ageGroup := range ageGroups {
+		entries := make([]LeaderboardEntry, 0)
+		cars := ageGroups[ageGroup]
 
-// "Relative Position": -1
-// }
+		// Create entries for each car
+		for _, car := range cars {
+			var categories []string
+			var points []int
+			validPoints := false
 
-// ]
-func (a *AllData) UpdateLeaderboard() ([]LeaderboardEntry, error) {
-	entries := make([]LeaderboardEntry, 0, len(a.CarMap))
+			// Collect race data
+			for _, race := range a.Races {
+				if raceData, participated := race.RaceData[car.Params.CarID]; participated {
+					if raceData.Points >= 0 {
+						categories = append(categories, race.RaceName)
+						points = append(points, raceData.Points)
+						validPoints = true
+					}
+				}
+			}
 
-	for carID, car := range a.CarMap {
-		var categories []string
-		var points []int
-		totalPoints := 0
-
-		// Collect race data for this car
-		for raceName, race := range a.Races {
-			if raceData, participated := race.RaceData[carID]; participated {
-				categories = append(categories, raceName)
-				points = append(points, raceData.Points)
-				totalPoints += raceData.Points
+			// Only add cars with valid points
+			if validPoints {
+				entry := LeaderboardEntry{
+					CarID:      car.Params.CarID,
+					Username:   car.Params.Username,
+					Avatar:     car.Params.Avatar,
+					Categories: categories,
+					Points:     points,
+				}
+				entries = append(entries, entry)
 			}
 		}
 
-		// Create leaderboard entry
-		entry := LeaderboardEntry{
-			CarID:      carID,
-			Username:   car.Params.Username,
-			Avatar:     car.Params.Avatar,
-			Categories: categories,
-			Points:     points,
-		}
-		entries = append(entries, entry)
-	}
+		// Sort entries by total points
+		sort.Slice(entries, func(i, j int) bool {
+			sumI := 0
+			sumJ := 0
+			for _, p := range entries[i].Points {
+				sumI += p
+			}
+			for _, p := range entries[j].Points {
+				sumJ += p
+			}
+			return sumI > sumJ
+		})
 
-	// Sort entries by total points to determine position
-	sort.Slice(entries, func(i, j int) bool {
-		sumI := 0
-		sumJ := 0
-		for _, p := range entries[i].Points {
-			sumI += p
-		}
-		for _, p := range entries[j].Points {
-			sumJ += p
-		}
-		return sumI > sumJ
-	})
-	// Set positions and calculate relative positions from last leaderboard
-	for i := range entries {
-		entries[i].Position = i + 1
-
-		// Find car's position in last leaderboard
-		for _, lastEntry := range a.LastLeaderboard {
-			if lastEntry.CarID == entries[i].CarID {
-				entries[i].RelPos = lastEntry.Position - entries[i].Position
-				break
+		// Set positions
+		for i := range entries {
+			entries[i].Position = i + 1
+			if prev, ok := a.Leaderboards[ageGroup]; ok {
+				// Find previous position for relative position calculation
+				for _, lastEntry := range prev {
+					if lastEntry.CarID == entries[i].CarID {
+						entries[i].RelPos = lastEntry.Position - entries[i].Position
+						break
+					}
+				}
 			}
 		}
+
+		// Update leaderboard for this age group
+		if a.Leaderboards == nil {
+			a.Leaderboards = make(map[string][]LeaderboardEntry)
+		}
+		a.Leaderboards[ageGroup] = entries
 	}
 
-	// Update LastLeaderboard with current entries
-	a.LastLeaderboard = make([]LeaderboardEntry, len(entries))
-	copy(a.LastLeaderboard, entries)
+	return nil
+}
 
+func (a *AllData) GetLeaderboard(ageGroup string) ([]LeaderboardEntry, error) {
+	if a.Leaderboards == nil {
+		a.Leaderboards = make(map[string][]LeaderboardEntry)
+	}
+	entries, ok := a.Leaderboards[ageGroup]
+	if !ok {
+		return nil, fmt.Errorf("no leaderboard found for age group %s", ageGroup)
+	}
 	return entries, nil
 }
 
-func (a *AllData) GetLeaderboard() ([]LeaderboardEntry, error) {
-	a.UpdateLeaderboard()
-	if a.LastLeaderboard == nil {
-		return nil, fmt.Errorf("leaderboard not initialized")
+func (a *AllData) DeleteLeaderboard(ageGroup string) error {
+	if a.Leaderboards == nil {
+		a.Leaderboards = make(map[string][]LeaderboardEntry)
 	}
-	return a.LastLeaderboard, nil
+	if _, ok := a.Leaderboards[ageGroup]; !ok {
+		return fmt.Errorf("no leaderboard found for age group %s", ageGroup)
+	}
+	if entries, ok := a.Leaderboards[ageGroup]; ok {
+		for i := range entries {
+			entries[i].RelPos = 0
+		}
+		a.Leaderboards[ageGroup] = entries
+	}
+	return nil
 }
 
-func (a *AllData) StartRace(s StartInstance, srv *Service) error {
+func (a *AllData) StartRace(s StartInstance) error {
 	car, ok := a.CarMap[s.CarID]
 	if !ok {
 		return fmt.Errorf("car with ID '%s' not found", s.CarID)
 	}
 
-	race, ok := a.Races[s.RaceName]
+	race, ok := a.Races[s.RaceName+"_"+strconv.Itoa(s.Lap)]
 	if !ok {
 		return fmt.Errorf("race '%s' not found", s.RaceName)
 	}
 
 	if car.CurrentRace != nil {
 		return fmt.Errorf("car '%s' is already in race '%s'", s.CarID, car.CurrentRace.RaceName)
+	}
+
+	// Ensure RaceData map is initialized
+	if race.RaceData == nil {
+		race.RaceData = make(map[string]RaceData)
 	}
 
 	// Initialize race data for this car
@@ -317,21 +399,33 @@ func (a *AllData) StartRace(s StartInstance, srv *Service) error {
 		RaceMode: true,
 	}
 
-	// Calculate max current
-	maxCurrent := car.Params.Mass * a.RaceCoeficient / car.Params.SetVoltage
-	car.Params.MaxCurrent = maxCurrent
-
-	payload := dataOutPSU{
-		U: float32(car.Params.SetVoltage),
-		I: float32(car.Params.MaxCurrent),
-	}
-
-	srv.sendPSUData(s.CarID, payload)
-
 	// Update car's current race
 	car.CurrentRace = &race
 	a.CarMap[s.CarID] = car
+	return nil
+}
 
+func (a *AllData) RaceFinish(r Race, srv *Service) error {
+	if _, ok := a.Races[raceKey(r)]; !ok {
+		return fmt.Errorf("race '%s' not found", r.RaceName)
+	}
+
+	// Check all cars for unfinished races
+	for carID, car := range a.CarMap {
+		if car.CurrentRace != nil && car.CurrentRace.RaceName == r.RaceName && car.CurrentRace.Lap == r.Lap {
+			if car.CurrentRace != nil && car.CurrentRace.RaceName == r.RaceName && car.CurrentRace.Lap == r.Lap {
+				// Get race data for this car
+				raceData := car.CurrentRace.RaceData[carID]
+				raceData.FactualTime = time.Since(raceData.timer)
+				raceData.RaceMode = false
+				car.CurrentRace.RaceData[carID] = raceData
+
+				// Clear car's current race
+				car.CurrentRace = nil
+				a.CarMap[carID] = car
+			}
+		}
+	}
 	return nil
 }
 
@@ -343,6 +437,11 @@ func (a *AllData) CarRaceFinish(s FinishInstance, srv *Service) error {
 
 	if car.CurrentRace == nil {
 		return fmt.Errorf("car '%s' is not in any race", s.CarID)
+	}
+
+	// Ensure RaceData map is initialized
+	if car.CurrentRace.RaceData == nil {
+		car.CurrentRace.RaceData = make(map[string]RaceData)
 	}
 
 	// Get race data for this car
@@ -357,4 +456,196 @@ func (a *AllData) CarRaceFinish(s FinishInstance, srv *Service) error {
 	a.CarMap[s.CarID] = car
 
 	return nil
+}
+
+func (a *AllData) UpdatePoints(p Points) error {
+	// Iterate through all races to find matching race names
+	found := false
+	for raceKey, race := range a.Races {
+		if race.RaceName == p.CategoryName {
+			// Initialize RaceData map if nil
+			if race.RaceData == nil {
+				race.RaceData = make(map[string]RaceData)
+			}
+			// Update points for each car in the points instance
+			for _, pi := range p.Points {
+				if raceData, exists := race.RaceData[pi.CarID]; exists {
+					raceData.Points = pi.Points
+					race.RaceData[pi.CarID] = raceData
+				} else {
+					// If car not found, create new RaceData entry
+					raceData = RaceData{
+						Position: 0,
+						Points:   pi.Points,
+					}
+					race.RaceData[pi.CarID] = raceData
+				}
+				// Store updated race back in races map
+				a.Races[raceKey] = race
+				found = true
+			}
+		}
+	}
+	if !found {
+		// create a new race (category) if not found
+		newRace := Race{
+			RaceName: p.CategoryName,
+			RaceData: make(map[string]RaceData),
+		}
+		// Add points for each car
+		for _, pi := range p.Points {
+			newRace.RaceData[pi.CarID] = RaceData{
+				Position: 0,
+				Points:   pi.Points,
+			}
+		}
+		// Add new race to races map
+		a.Races[raceKey(newRace)] = newRace
+	}
+
+	a.UpdateLeaderboard()
+	return nil
+}
+
+func (a *AllData) ResetPoints(raceName string) error {
+	// Iterate through all races with given name
+	found := false
+	for raceKey, race := range a.Races {
+		if race.RaceName == raceName {
+			found = true
+			// Initialize RaceData if nil
+			if race.RaceData == nil {
+				race.RaceData = make(map[string]RaceData)
+			}
+			// Reset points for all cars in the race
+			for carID, raceData := range race.RaceData {
+				raceData.Points = 0 // Set default point value to -1
+				race.RaceData[carID] = raceData
+			}
+			a.Races[raceKey] = race
+		}
+	}
+	if !found {
+		return fmt.Errorf("race '%s' not found", raceName)
+	}
+	a.UpdateLeaderboard()
+	return nil
+}
+
+func (a *AllData) SaveToFile() error {
+	// Update the timestamp before saving
+	a.LastSave = time.Now()
+
+	data, err := json.MarshalIndent(*a, "", "    ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal AllData: %w", err)
+	}
+	lastSave, err := a.LastSave.MarshalText()
+	if err != nil {
+		return fmt.Errorf("failed to marshal LastSave: %w", err)
+	}
+	folderPath := fmt.Sprintf("home/%s", a.UUID.String())
+	if err := os.MkdirAll(folderPath, 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
+	filename := fmt.Sprintf("%s/alldata_%s.json", folderPath, lastSave)
+	err = os.WriteFile(filename, data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write AllData to custom file: %w", err)
+	}
+
+	// Save copy to default location
+	err = os.WriteFile("home/alldata.json", data, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to write AllData to file: %w", err)
+	}
+	logrus.Infof("AllData saved to alldata.json")
+	return nil
+}
+
+func (a *AllData) LoadFromFile() error {
+	data, err := os.ReadFile("home/alldata.json")
+	if err != nil {
+		return fmt.Errorf("failed to read AllData from file: %w", err)
+	}
+
+	err = json.Unmarshal(data, a)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal AllData: %w", err)
+	}
+
+	if a.UUID == (uuid.UUID{}) {
+		a.UUID = uuid.New()
+		logrus.Infof("Generated new UUID for AllData: %s", a.UUID.String())
+	}
+
+	logrus.Infof("AllData loaded from file with UUID: %s", a.UUID.String())
+	return nil
+}
+
+func (a *AllData) ResetData() {
+	a.SaveToFile()
+	a.UUID = uuid.New()
+	a.LastSave = time.Time{}
+	a.Settings.RaceCoeficient = 0
+	a.CarMap = make(map[string]Car)
+	a.Races = make(map[string]Race)
+	a.Leaderboards = make(map[string][]LeaderboardEntry)
+}
+
+func (a *AllData) GetSettings() Settings {
+	return a.Settings
+}
+
+func (a *AllData) UpdateSettings(settings Settings, srv *Service) {
+	a.Settings = settings
+
+	// Update PSU data for all registered cars based on new settings
+	for carID, car := range a.CarMap {
+		// Calculate max current
+		if car.Params.SetVoltage <= 0 {
+			logrus.Warnf("SetVoltage for car %s is zero or negative, skipping PSU update", carID)
+			continue
+		}
+		maxCurrent := car.Params.Mass * a.Settings.RaceCoeficient / car.Params.SetVoltage
+		car.Params.MaxCurrent = maxCurrent
+		payload := dataOutPSU{
+			U:      float32(car.Params.SetVoltage),
+			I:      float32(maxCurrent),
+			Status: 1,
+		}
+		srv.sendPSUData(carID, payload)
+	}
+}
+
+func (a *AllData) CheckSpeed(carID string, speed float32, srv *Service) {
+	if car, ok := a.CarMap[carID]; ok {
+		var over bool
+		if car.SpeedTestIterator > 6 && car.SpeedTestIterator <= 8 {
+			car.SpeedTestIterator++
+			return
+		} else if car.SpeedTestIterator >= 8 {
+			car.SpeedTestIterator = 0
+			payload := dataOutPSU{
+				U:      float32(car.Params.SetVoltage),
+				I:      float32(car.Params.MaxCurrent),
+				Status: 1,
+			}
+			srv.sendPSUData(carID, payload)
+		}
+		if over = (float64(speed) > a.Settings.MaxSpeed); over {
+			car.SpeedTestIterator++
+			a.CarMap[carID] = car
+		}
+		if car.SpeedTestIterator == 6 {
+			payload := dataOutPSU{
+				U:      float32(car.Params.SetVoltage),
+				I:      float32(car.Params.MaxCurrent),
+				Status: 0,
+			}
+			srv.sendPSUData(carID, payload)
+			car.SpeedTestIterator++
+			a.CarMap[carID] = car
+		}
+	}
 }

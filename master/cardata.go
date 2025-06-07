@@ -208,9 +208,6 @@ func (table *CarIDMap) SendMessagePSU(carID string, srv *Service) {
 	}
 	if car, ok := (*table)[carID]; ok {
 		payload := dataOutPSU{U: float32(car.Params.SetVoltage), I: float32(car.Params.MaxCurrent)}
-		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists && !raceData.RaceMode {
-			payload.I = 1048576
-		}
 		srv.sendPSUData(carID, payload)
 	}
 }

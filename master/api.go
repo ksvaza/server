@@ -16,7 +16,7 @@ func (srv *Service) getCars(w http.ResponseWriter, r *http.Request, ps httproute
 
 	cars := srv.AllData.GetCars()
 
-	//srv.AllData.SaveToFile()
+	srv.AllData.SaveToFile()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -43,26 +43,26 @@ func (srv *Service) postCars(w http.ResponseWriter, r *http.Request, ps httprout
 		return
 	}
 
-	srv.AllData.UpdateCars(cars)
+	srv.AllData.UpdateCars(cars, srv)
 
-	//srv.AllData.SaveToFile()
+	srv.AllData.SaveToFile()
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (srv *Service) getRaces(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api
+func (srv *Service) getRaces(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/races
 	logrus.Debugf("got getRaces request %+v", ps)
 
 	races := srv.AllData.GetRaces()
 
-	//srv.AllData.SaveToFile()
+	srv.AllData.SaveToFile()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(races)
 }
 
-func (srv *Service) postRaces(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+func (srv *Service) postRaces(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/races
 	logrus.Debugf("got postRaces request %+v", ps)
 
 	errorHandler := func(err error, code int) {
@@ -83,12 +83,12 @@ func (srv *Service) postRaces(w http.ResponseWriter, r *http.Request, ps httprou
 
 	srv.AllData.UpdateRaces(races)
 
-	//srv.AllData.SaveToFile()
+	srv.AllData.SaveToFile()
 
 	w.WriteHeader(http.StatusOK)
 }
 
-func (srv *Service) getResults(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/results
+func (srv *Service) getResults(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/results/:racename
 	logrus.Debugf("got getResults request %+v", ps)
 
 	errorHandler := func(err error, code int) {
@@ -110,14 +110,14 @@ func (srv *Service) getResults(w http.ResponseWriter, r *http.Request, ps httpro
 		}
 	}
 
-	//srv.AllData.SaveToFile()
+	srv.AllData.SaveToFile()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(results)
 }
 
-func (srv *Service) getLeaderboard(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/leaderboard
+func (srv *Service) getLeaderboard(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/leaderboard/:agegroup
 	logrus.Debugf("got getLeaderboard request %+v", ps)
 
 	errorHandler := func(err error, code int) {
@@ -125,15 +125,42 @@ func (srv *Service) getLeaderboard(w http.ResponseWriter, r *http.Request, ps ht
 		http.Error(w, err.Error(), code)
 	}
 
-	leaderboard, err := srv.AllData.GetLeaderboard()
+	ageGroup := ps.ByName("agegroup")
+
+	leaderboard, err := srv.AllData.GetLeaderboard(ageGroup)
 	if err != nil {
 		errorHandler(err, http.StatusInternalServerError)
 		return
 	}
 
+	srv.AllData.SaveToFile()
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(leaderboard)
+}
+
+func (srv *Service) deleteLeaderboard(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // DELETE /api/leaderboard/:agegroup
+	logrus.Debugf("got deleteLeaderboard request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	ageGroup := ps.ByName("agegroup")
+
+	err := srv.AllData.DeleteLeaderboard(ageGroup)
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+		return
+	}
+
+	srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte(fmt.Sprintf("Leaderboard for age group '%s' deleted", ageGroup)))
 }
 
 func (srv *Service) postStartRace(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/race/start
@@ -154,13 +181,51 @@ func (srv *Service) postStartRace(w http.ResponseWriter, r *http.Request, ps htt
 		return
 	}
 
+	var errorS string
+	var errorB bool
 	for _, s := range start {
-		err = srv.AllData.StartRace(s, srv)
+		err = srv.AllData.StartRace(s)
 		if err != nil {
-			errorHandler(err, http.StatusInternalServerError)
-			return
+			errorS += fmt.Sprintf("%s\n", err.Error())
+			errorB = true
 		}
 	}
+
+	srv.AllData.SaveToFile()
+
+	if errorB {
+		errorHandler(errors.New(errorS), http.StatusInternalServerError)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
+func (srv *Service) postRaceFinish(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/race/finish
+	logrus.Debugf("got postRaceFinish request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	var finish Race
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(body, &finish); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	err = srv.AllData.RaceFinish(finish, srv)
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+		return
+	}
+
+	srv.AllData.SaveToFile()
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -190,10 +255,126 @@ func (srv *Service) postCarFinish(w http.ResponseWriter, r *http.Request, ps htt
 		return
 	}
 
+	srv.AllData.SaveToFile()
+
 	w.WriteHeader(http.StatusOK)
 }
 
-// ----------------------------------------------------------------
+func (srv *Service) postPoints(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/points
+	logrus.Debugf("got postPoints request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	var points Points
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(body, &points); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+	logrus.Debugf("Updating points %+v", points)
+
+	err = srv.AllData.UpdatePoints(points)
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+		return
+	}
+
+	srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (srv *Service) deletePoints(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // DELETE /api/points
+	logrus.Debugf("got deletePoints request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	var race Race
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+	if err := json.Unmarshal(body, &race); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	err = srv.AllData.ResetPoints(race.RaceName)
+	if err != nil {
+		errorHandler(err, http.StatusInternalServerError)
+		return
+	}
+
+	srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte("All points deleted"))
+}
+
+func (srv *Service) deleteData(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // DELETE /api/delete
+	logrus.Debugf("got deleteData request %+v", ps)
+
+	srv.AllData.ResetData()
+
+	srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	w.Write([]byte("All data deleted"))
+}
+
+func (srv *Service) getSettings(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/settings
+	logrus.Debugf("got getSettings request %+v", ps)
+
+	settings := srv.AllData.GetSettings()
+
+	srv.AllData.SaveToFile()
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(settings)
+}
+
+func (srv *Service) postSettings(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // POST /api/settings
+	logrus.Debugf("got postSettings request %+v", ps)
+
+	errorHandler := func(err error, code int) {
+		logrus.WithError(err).Error("Error")
+		http.Error(w, err.Error(), code)
+	}
+
+	var settings Settings
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		errorHandler(errors.Wrap(err, "ReadAll"), http.StatusBadRequest)
+		return
+	}
+
+	if err := json.Unmarshal(body, &settings); err != nil {
+		errorHandler(errors.Wrap(err, "Unmarshal"), http.StatusBadRequest)
+		return
+	}
+
+	srv.AllData.UpdateSettings(settings, srv)
+
+	srv.AllData.SaveToFile()
+
+	w.WriteHeader(http.StatusOK)
+}
+
+// --------------------------------------------------------------------------------------------------------------------------------
 
 func (srv *Service) getParameters(w http.ResponseWriter, r *http.Request, ps httprouter.Params) { // GET /api/parameters
 	logrus.Debugf("got get request %+v", ps)

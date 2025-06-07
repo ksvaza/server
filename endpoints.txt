@@ -1,0 +1,77 @@
+https://izv.svaza.lv/api/delete
+
+https://izv.svaza.lv/api/races [
+  	{
+   		"RaceName": "race",
+   		"Lap": 1,
+   		"Length": 3
+  	},
+ 	{
+   		"RaceName" : "race",
+   		"Lap": 2,
+   		"Length": 3
+  	},
+ 	{
+   		"RaceName" : "race",
+   		"Lap": 3,
+   		"Length": 3
+ 	}
+]
+
+https://izv.svaza.lv/api/cars [
+  {
+    "id": "1",
+    "username": "car-01",
+    "avatar": "https://img.freepik.com/free-vector/blue-circle-with-white-user_78370-4707.jpg",
+    "U": 0.3,
+    "I": 0.05,
+    "m": 220,
+    "ageGroup": "A"
+  },
+  {
+    "id": "2",
+    "username": "car-02",
+    "avatar": "https://img.freepik.com/free-vector/blue-circle-with-white-user_78370-4707.jpg",
+    "U": 0.25,
+    "I": 0.04,
+    "m": 210,
+    "ageGroup": "B"
+  },
+  {
+    "id": "3",
+    "username": "car-03",
+    "avatar": "https://img.freepik.com/free-vector/blue-circle-with-white-user_78370-4707.jpg",
+    "U": 0.28,
+    "I": 0.045,
+    "m": 215,
+    "ageGroup": "C"
+  },
+  {
+    "id": "4",
+    "username": "car-04",
+    "avatar": "https://img.freepik.com/free-vector/blue-circle-with-white-user_78370-4707.jpg",
+    "U": 0,
+    "I": 0,
+    "m": 0,
+    "ageGroup": "A"
+  }
+]
+
+https://izv.svaza.lv/api/results/race
+
+https://izv.svaza.lv/api/race/start [
+  { "raceName": "race", "Lap": 1, "ID": "2"},
+  { "raceName": "race", "Lap": 1, "ID": "3"}
+]
+
+https://izv.svaza.lv/api/car/finish {"ID": "4" }
+
+https://izv.svaza.lv/api/points {
+	"CategoryName": "RaceB",
+	"Points": [
+		{ "ID": "1", "Points": 10 },
+		{ "ID": "2", "Points": 8 },
+		{ "ID": "3", "Points": 5 },
+		{ "ID": "4", "Points": 30 }
+	]
+}

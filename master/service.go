@@ -46,8 +46,8 @@ var lastMessageTime atomic.Int64
 
 func withCORS(h httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
-		w.Header().Set("Access-Control-Allow-Origin", "*") // or "http://localhost:5173"
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173") // or "http://localhost:5173"
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 		if r.Method == "OPTIONS" {
@@ -126,6 +126,10 @@ func (srv *Service) Run() {
 		// if err != nil {
 		// 	logrus.WithError(errors.Wrap(err, "RaceTable")).Error("Error loading race data")
 		// }
+		err := srv.AllData.LoadFromFile()
+		if err != nil {
+			logrus.WithError(errors.Wrap(err, "AllData")).Error("Error loading all data")
+		}
 
 		mime.AddExtensionType(".js", "application/javascript")
 		mime.AddExtensionType(".css", "text/css")
@@ -134,19 +138,23 @@ func (srv *Service) Run() {
 		//router.Handler("GET", "/*filepath", http.FileServer(http.Dir("public")))
 		router.Handler("GET", "/files/*filepath", http.StripPrefix("/files/", http.FileServer(http.Dir("public"))))
 		router.HandlerFunc("GET", "/api/outdoors", srv.getOutdoors)
+		router.HandlerFunc("GET", "/ws", srv.wsHandler)
 
 		router.GET("/api/cars", withCORS(srv.getCars))
 		router.POST("/api/cars", withCORS(srv.postCars))
 		router.GET("/api/races", withCORS(srv.getRaces))
 		router.POST("/api/races", withCORS(srv.postRaces))
 		router.GET("/api/results/:racename", withCORS(srv.getResults))
-		router.GET("/api/leaderboard", withCORS(srv.getLeaderboard))
+		router.GET("/api/leaderboard/:agegroup", withCORS(srv.getLeaderboard))
+		router.DELETE("/api/leaderboard/:agegroup", withCORS(srv.deleteLeaderboard))
 		router.POST("/api/race/start", withCORS(srv.postStartRace))
+		router.POST("/api/race/finish", withCORS(srv.postRaceFinish))
 		router.POST("/api/car/finish", withCORS(srv.postCarFinish))
-
-		//router.POST("/api/race/start", withCORS(srv.startRace))
-		router.POST("/api/race/finish", withCORS(srv.endRace))
-		//router.POST("/api/car/finish", withCORS(srv.whoFinished))
+		router.POST("/api/points", withCORS(srv.postPoints))
+		router.DELETE("/api/points", withCORS(srv.deletePoints))
+		router.DELETE("/api/delete", withCORS(srv.deleteData))
+		router.GET("/api/settings", withCORS(srv.getSettings))
+		router.POST("/api/settings", withCORS(srv.postSettings))
 
 		// ------------------------
 		router.GET("/api/car/:car/latest", withCORS(srv.getLatestData))
@@ -157,7 +165,7 @@ func (srv *Service) Run() {
 		router.GET("/api/race/:car/start", withCORS(srv.triggerRaceStart))   // should be POST
 		router.GET("/api/race/:car/finish", withCORS(srv.triggerRaceFinish)) // should be POST
 
-		err := http.ListenAndServe(":1884", router)
+		err = http.ListenAndServe(":1884", router)
 		if err != nil {
 			logrus.WithError(errors.Wrap(err, "HTTP")).Error("Error")
 		}
