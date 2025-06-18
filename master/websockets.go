@@ -3,11 +3,56 @@ package master
 import (
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
+
+type Session struct {
+	Channel chan string
+}
+
+var Sessions = map[int]*Session{}
+var SessionsMutex = sync.RWMutex{}
+
+func AddSession(s *Session) int {
+	SessionsMutex.Lock()
+	defer SessionsMutex.Unlock()
+	if s == nil {
+		return -1
+	}
+	id := len(Sessions)
+	Sessions[id] = s
+	logrus.Debugf("Session %d added", id)
+	return id
+}
+
+func RemoveSession(id int) {
+	SessionsMutex.Lock()
+	defer SessionsMutex.Unlock()
+	if s, ok := Sessions[id]; ok {
+		logrus.Debugf("Session %d removed", id)
+		close(s.Channel)
+		delete(Sessions, id)
+	} else {
+		logrus.Debugf("Session %d not found", id)
+	}
+}
+
+func BroadcastMessage(msg string) {
+	SessionsMutex.RLock()
+	defer SessionsMutex.RUnlock()
+	for id, s := range Sessions {
+		select {
+		case s.Channel <- msg:
+			logrus.Debugf("Message sent to session %d", id)
+		default:
+			logrus.Debugf("Session %d is busy, message not sent", id)
+		}
+	}
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
@@ -15,8 +60,22 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
+func (srv *Service) SendLiveData() {
+	SessionsMutex.RLock()
+	defer SessionsMutex.RUnlock()
+	for id, s := range Sessions {
+		select {
+		case s.Channel <- srv.AllData.LiveDataToJson():
+			logrus.Debugf("Live data sent to session %d", id)
+		default:
+			logrus.Debugf("Session %d is busy, live data not sent", id)
+		}
+	}
+}
+
 func (srv *Service) wsHandler(w http.ResponseWriter, r *http.Request) {
 	var err error
+	logrus.Debugf("Websocket request %s %s", r.Method, r.URL.Path)
 	if upgrade := r.Header.Get("Upgrade"); upgrade == "websocket" {
 		// Handle as websocket request
 		err = srv.wsBase(w, r)
@@ -40,7 +99,7 @@ func (srv *Service) wsHandler(w http.ResponseWriter, r *http.Request) {
 func (mgmt *Service) wsBase(w http.ResponseWriter, r *http.Request) error {
 	var err error
 
-	logrus.Debug(`Public connection`)
+	logrus.Debugf("Public connection %s %s", r.Method, r.URL.Path)
 
 	var ws *websocket.Conn
 	ws, err = upgrader.Upgrade(w, r, nil)
@@ -53,6 +112,30 @@ func (mgmt *Service) wsBase(w http.ResponseWriter, r *http.Request) error {
 		logrus.Tracef("Ping/pong received %s", msg)
 		return nil
 	})
+
+	session := Session{
+		Channel: make(chan string, 10), // Buffered channel to handle messages
+	}
+	id := AddSession(&session)
+	if id < 0 {
+		return errors.New("Failed to add session")
+	}
+
+	// Websocket message sender thread
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logrus.WithError(errors.New(fmt.Sprintf("%v", r))).Error("Websocket write panic")
+			}
+		}()
+		for msg := range session.Channel {
+			if err := ws.WriteMessage(websocket.TextMessage, []byte(msg)); err != nil {
+				logrus.WithError(errors.Wrap(err, "Websocket write")).Error("Failed to send message")
+				return
+			}
+			logrus.Debugf("Sent message to session %d: %s", id, string(msg))
+		}
+	}()
 
 	for {
 		var reqType int
@@ -72,26 +155,18 @@ func (mgmt *Service) wsBase(w http.ResponseWriter, r *http.Request) error {
 			break
 		}
 
-		resType := websocket.TextMessage
-		var res string
-
 		if reqType == websocket.TextMessage {
-			res = "Public echo " + string(req)
+			BroadcastMessage(string(req)) // Broadcast to all sessions
 
-		} else {
-			err = errors.New("Only text message supported")
-		}
-
-		logrus.Debugf("Responded %s", string(res))
-		if err = ws.WriteMessage(resType, []byte(res)); err != nil {
-			err = errors.Wrap(err, "WS")
-			break
 		}
 	}
+	RemoveSession(id) // Clean up session on exit
+
 	return err
 }
 
 func (s *Service) wsBasePage(w http.ResponseWriter, r *http.Request) error {
+	logrus.Debug("Websocket page requested")
 	body := `<!DOCTYPE html>
 <html lang="en">
 	<head>
@@ -101,7 +176,7 @@ func (s *Service) wsBasePage(w http.ResponseWriter, r *http.Request) error {
 		<title>WebSocket Playground</title>
 	</head>
 	<body>
-		<h2>Hello Aranet</h2>
+		<h2>Websocket Tester</h2>
 		<form name="publish">
 			<input type="text" name="message">
 			<input type="submit" value="Send">
@@ -109,7 +184,7 @@ func (s *Service) wsBasePage(w http.ResponseWriter, r *http.Request) error {
 
 		<div id="messages"></div>
 		<script>
-			let socket = new WebSocket(((window.location.protocol === "https:") ? "wss://" : "ws://") + window.location.host + "/base");
+			let socket = new WebSocket(((window.location.protocol === "https:") ? "wss://" : "ws://") + window.location.host + "/ws");
 			console.log("Attempting Connection...");
 
 			document.forms.publish.onsubmit = function() {
@@ -127,12 +202,10 @@ func (s *Service) wsBasePage(w http.ResponseWriter, r *http.Request) error {
 
 			socket.onopen = () => {
 				console.log("Successfully Connected");
-				socket.send("Hello!")
 			};
 
 			socket.onclose = event => {
 				console.log("Socket Closed Connection: ", event);
-				socket.send("Client Closed!")
 			};
 
 			socket.onerror = error => {

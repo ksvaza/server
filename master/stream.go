@@ -170,7 +170,7 @@ func (srv *Service) handleTopicPSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
 	//fields["Wh"] = srv.dataCarStorage.MqttMessagePSU(carID, float64(data.Pop))
-	fields["Wh"], err = srv.CarTable.MqttMessagePSU(carID, float64(data.Pop))
+	fields["Wh"], err = srv.CarTable.MqttMessagePSU(carID, float64(data.Pop), float64(data.Wh))
 	if err != nil {
 		logrus.WithError(err).Error("Error")
 		return
@@ -384,6 +384,12 @@ func (srv *Service) sendPSUData(carID string, data dataOutPSU) error {
 	payload.PSU.U = int(math.Round(float64(data.U) * 100.0))
 	payload.PSU.I = int(math.Round(float64(data.I) * 100.0))
 	payload.PSU.St = data.Status
+	if payload.PSU.U <= 0 || payload.PSU.I <= 0 {
+		return errors.New("Invalid PSU data: U and I must be greater than 0")
+	}
+	if payload.PSU.I > 2000 {
+		payload.PSU.I = 2000 // Limit max current to 20A
+	}
 	bytes, err := json.Marshal(payload)
 	if err != nil {
 		return errors.Wrap(err, "JSON")

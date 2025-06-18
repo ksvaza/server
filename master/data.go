@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -75,7 +76,7 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 		Iop:  float32(payload.PSU.Iop) / 100.0,
 		Pop:  float32(payload.PSU.Pop) / 100.0,
 		Uip:  float32(payload.PSU.Uip) / 100.0,
-		Wh:   float32(payload.PSU.Wh) / 100.0,
+		Wh:   float32(payload.PSU.Wh),
 		Time: time.Now(),
 	}
 
@@ -87,6 +88,8 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 		logrus.WithError(err).Error("Error")
 		return
 	}
+
+	srv.AllData.UpdateLiveDataCarPSU(carID, float64(data.Pop), float64(data.Uop))
 
 	org := "Kaste"
 	bucket, err := EnsureBucket(srv.Influxdb, org, "AllData/"+srv.AllData.UUID.String())
@@ -113,6 +116,7 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 	fields["Pop"] = data.Pop
 	fields["Uip"] = data.Uip
 	fields["Wh"] = consumption
+	var car Car
 	if car, registered := srv.AllData.CarMap[carID]; registered {
 		race = car.CurrentRace
 		if race != nil {
@@ -123,6 +127,13 @@ func (srv *Service) mqttReceivePSU(ctx context.Context, client mqtt.Client, msg 
 			fields["Lap"] = 0
 		}
 	}
+
+	payloadO := dataOutPSU{
+		U:      float32(car.Params.SetVoltage),
+		I:      float32(car.Params.MaxCurrent),
+		Status: 1,
+	}
+	srv.sendPSUData(carID, payloadO)
 
 	logrus.Debugf("Tags: %v, Fields: %v", tags, fields)
 
@@ -185,6 +196,7 @@ func (srv *Service) mqttReceiveGPS(ctx context.Context, client mqtt.Client, msg 
 		return
 	}
 
+	srv.AllData.UpdateLiveDataCarGPS(carID, float64(data.Lat), float64(data.Lon), float64(data.Spd))
 	srv.AllData.CheckSpeed(carID, data.Spd, srv)
 
 	org := "Kaste"
@@ -281,6 +293,10 @@ func (srv *Service) mqttReceiveAccel(ctx context.Context, client mqtt.Client, ms
 		logrus.WithError(err).Error("Error")
 		return
 	}
+
+	accel := math.Sqrt(float64(data.X*data.X + data.Y*data.Y + data.Z*data.Z))
+
+	srv.AllData.UpdateLiveDataCarAccel(carID, accel)
 
 	org := "Kaste"
 	bucket, err := EnsureBucket(srv.Influxdb, org, "AllData/"+srv.AllData.UUID.String())

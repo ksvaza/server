@@ -56,16 +56,22 @@ func (a *AllData) MqttMessageRST(carID string, porCode string, srv *Service) err
 		if race == nil {
 			return errors.New(fmt.Sprintf("CurrentRace is nil for car %s", carID))
 		}
+		payloadO := dataOutPSU{
+			U:      float32(car.Params.SetVoltage),
+			I:      float32(car.Params.MaxCurrent),
+			Status: 1,
+		}
+		srv.sendPSUData(carID, payloadO)
 		if raceData, exists := race.RaceData[carID]; exists {
 			raceData.timer = time.Now()
 
-			payload := dataOutPSU{
-				U:      float32(car.Params.SetVoltage),
-				I:      float32(car.Params.MaxCurrent),
-				Status: 1,
-			}
+			// payload := dataOutPSU{
+			// 	U:      float32(car.Params.SetVoltage),
+			// 	I:      float32(car.Params.MaxCurrent),
+			// 	Status: 1,
+			// }
 
-			srv.sendPSUData(carID, payload)
+			// srv.sendPSUData(carID, payload)
 
 			return nil
 		}

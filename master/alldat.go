@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,12 +14,14 @@ import (
 )
 
 type AllData struct {
-	UUID         uuid.UUID // Unique identifier for this instance
-	LastSave     time.Time // Timestamp of last file save
-	Settings     Settings
-	CarMap       map[string]Car                // map of [carID]
-	Races        map[string]Race               // map of [raceName_Lap]
-	Leaderboards map[string][]LeaderboardEntry // map of [ageGroup]
+	UUID          uuid.UUID // Unique identifier for this instance
+	LastSave      time.Time // Timestamp of last file save
+	Settings      Settings
+	CarMap        map[string]Car                // map of [carID]
+	Races         map[string]Race               // map of [raceName_Lap]
+	Leaderboards  map[string][]LeaderboardEntry // map of [ageGroup]
+	LiveData      map[string]LiveDataInstance   // map of [carID]
+	LiveDataMutex sync.Mutex                    // Mutex to protect LiveData access
 }
 
 type Car struct {
@@ -119,6 +122,40 @@ type Settings struct {
 	MaxSpeed       float64 `json:"MaxSpd"`
 }
 
+//	{
+//	    "key": "69",
+//	    "ID": 69,
+//	    "username": "Alice",
+//	    "avatar": "https://m.media-amazon.com/images/S/pv-target-images/16627900db04b76fae3b64266ca161511422059cd24062fb5d900971003a0b70.jpg",
+//	    "CategoryNames": ["CategoryA","CategoryB","CategoryC","CategoryD"],
+//	    "CategoryPoints": [10,15,8,1],
+//	    "status": "online",
+//	    "position": 1,
+//	    "lat": 56.660211339105715,
+//	    "lon": 23.744293111677134,
+//	    "spd": 12.3,
+//	    "power": 98,
+//	    "acceleration": 0.2,
+//	    "voltage": 62,
+//	    "updatedAt": "2025-05-14T22:36:00Z"
+//	  },
+type LiveDataInstance struct {
+	Key        string    `json:"key"`
+	CarID      string    `json:"ID"`
+	Username   string    `json:"username"`
+	Avatar     string    `json:"avatar"`
+	Categories []string  `json:"CategoryNames"`
+	Points     []int     `json:"CategoryPoints"`
+	Position   int       `json:"position"`
+	Lat        float64   `json:"lat"`
+	Lon        float64   `json:"lon"`
+	Speed      float64   `json:"spd"`
+	Power      float64   `json:"power"`
+	Accel      float64   `json:"acceleration"`
+	Voltage    float64   `json:"voltage"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
 func (a *AllData) GetCars() []Parameters {
 	if a.CarMap == nil {
 		a.CarMap = make(map[string]Car)
@@ -168,6 +205,8 @@ func (a *AllData) UpdateCars(cars []Parameters, srv *Service) {
 			I:      float32(car.Params.MaxCurrent),
 			Status: 1,
 		}
+
+		srv.AllData.AddCarToLiveData(carID, car.Params.Username, car.Params.Avatar)
 
 		srv.sendPSUData(carID, payload)
 	}
@@ -269,6 +308,9 @@ func (a *AllData) UpdateLeaderboard() error {
 	}
 	ageGroups["all"] = allCars // Add "all" group for overall leaderboard
 
+	categs := map[string][]string{}
+	pts := map[string][]int{}
+
 	// Process each age group (including "all" string for overall)
 	for ageGroup := range ageGroups {
 		entries := make([]LeaderboardEntry, 0)
@@ -300,6 +342,8 @@ func (a *AllData) UpdateLeaderboard() error {
 					Categories: categories,
 					Points:     points,
 				}
+				categs[car.Params.CarID] = categories
+				pts[car.Params.CarID] = points
 				entries = append(entries, entry)
 			}
 		}
@@ -323,6 +367,7 @@ func (a *AllData) UpdateLeaderboard() error {
 			if prev, ok := a.Leaderboards[ageGroup]; ok {
 				// Find previous position for relative position calculation
 				for _, lastEntry := range prev {
+					a.UpdateLiveDataCarPositionCategory(lastEntry.CarID, categs[lastEntry.CarID], pts[lastEntry.CarID], entries[i].Position)
 					if lastEntry.CarID == entries[i].CarID {
 						entries[i].RelPos = lastEntry.Position - entries[i].Position
 						break
@@ -388,7 +433,7 @@ func (a *AllData) StartRace(s StartInstance) error {
 		race.RaceData = make(map[string]RaceData)
 	}
 
-	// Initialize race data for this car
+	// Initialize race data for this car-+
 	race.RaceData[s.CarID] = RaceData{
 		Position: 0,
 		Points:   0,
@@ -648,4 +693,83 @@ func (a *AllData) CheckSpeed(carID string, speed float32, srv *Service) {
 			a.CarMap[carID] = car
 		}
 	}
+}
+
+func (a *AllData) AddCarToLiveData(carID string, username string, avatar string) {
+	a.LiveDataMutex.Lock()
+	defer a.LiveDataMutex.Unlock()
+
+	dat := a.LiveData[carID]
+
+	dat.Key = carID
+	dat.CarID = carID
+	dat.Username = username
+	dat.Avatar = avatar
+	dat.UpdatedAt = time.Now()
+
+	a.LiveData[carID] = dat
+}
+
+func (a *AllData) UpdateLiveDataCarPositionCategory(carID string, Categories []string, Points []int, Position int) {
+	a.LiveDataMutex.Lock()
+	defer a.LiveDataMutex.Unlock()
+
+	dat := a.LiveData[carID]
+
+	dat.Categories = Categories
+	dat.Points = Points
+	dat.Position = Position
+	dat.UpdatedAt = time.Now()
+
+	a.LiveData[carID] = dat
+}
+
+func (a *AllData) UpdateLiveDataCarGPS(carID string, lat, lon, speed float64) {
+	a.LiveDataMutex.Lock()
+	defer a.LiveDataMutex.Unlock()
+
+	dat := a.LiveData[carID]
+
+	dat.Lat = lat
+	dat.Lon = lon
+	dat.Speed = speed
+	dat.UpdatedAt = time.Now()
+
+	a.LiveData[carID] = dat
+}
+
+func (a *AllData) UpdateLiveDataCarAccel(carID string, accel float64) {
+	a.LiveDataMutex.Lock()
+	defer a.LiveDataMutex.Unlock()
+
+	dat := a.LiveData[carID]
+
+	dat.Accel = accel
+	dat.UpdatedAt = time.Now()
+
+	a.LiveData[carID] = dat
+}
+
+func (a *AllData) UpdateLiveDataCarPSU(carID string, power, voltage float64) {
+	a.LiveDataMutex.Lock()
+	defer a.LiveDataMutex.Unlock()
+
+	dat := a.LiveData[carID]
+
+	dat.Power = power
+	dat.Voltage = voltage
+	dat.UpdatedAt = time.Now()
+
+	a.LiveData[carID] = dat
+}
+
+func (a *AllData) LiveDataToJson() string {
+	a.LiveDataMutex.Lock()
+	defer a.LiveDataMutex.Unlock()
+
+	data, err := json.Marshal(a.LiveData)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }

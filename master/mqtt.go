@@ -20,9 +20,10 @@ func (l *Log) AddLog(topic string, payload []byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	log := fmt.Sprintf("%s: %s", topic, string(payload))
+	t := time.Now().Format("02.01.2006 15:04:05")
+	log := fmt.Sprintf("%s - %s: %s", t, topic, string(payload))
 	l.logs = append(l.logs, log)
-	if len(l.logs) > 1000 {
+	if len(l.logs) > 10000 {
 		l.logs = l.logs[1:]
 	}
 }
@@ -63,8 +64,8 @@ func createMqttClient(host string, port int, username, password string) (mqtt.Cl
 	opts.SetClientID("server")
 	opts.SetUsername(username)
 	opts.SetPassword(password)
-	opts.SetKeepAlive(1 * time.Second)
-	opts.SetPingTimeout(2 * time.Second)
+	opts.SetKeepAlive(30 * time.Second)
+	opts.SetPingTimeout(10 * time.Second)
 	opts.AutoReconnect = false
 	opts.CleanSession = false
 	//opts.SetTLSConfig(&tls.Config{InsecureSkipVerify: true})

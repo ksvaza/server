@@ -141,20 +141,26 @@ func (table *CarIDMap) CarRaceFinish(carID string) error {
 	}
 }
 
-func (table *CarIDMap) MqttMessagePSU(carID string, power float64) (float64, error) {
+func (table *CarIDMap) MqttMessagePSU(carID string, power float64, consumption float64) (float64, error) {
 	if *table == nil {
 		*table = make(CarIDMap)
 	}
 	if car, ok := (*table)[carID]; ok {
 		if raceData, exists := car.RaceData[CurrentRaceConfig.Name]; exists {
-			delta := time.Since(raceData.timer)
+			// delta := time.Since(raceData.timer)
 			err := table.MqttMessageAny(carID)
 			if err != nil {
 				return 0, err
 			}
-			if raceData.RaceMode {
-				raceData.TotalWh += power * float64(delta.Hours())
+			delta := consumption - raceData.TotalWh
+			if delta > 0 {
+				raceData.TotalWh += delta
+			} else {
+				logrus.Warnf("Negative consumption value for car %s: %f", carID, delta)
 			}
+			// if raceData.RaceMode {
+			// 	raceData.TotalWh += power * float64(delta.Hours())
+			// }
 			car.RaceData[CurrentRaceConfig.Name] = raceData
 			(*table)[carID] = car
 			return raceData.TotalWh, nil
